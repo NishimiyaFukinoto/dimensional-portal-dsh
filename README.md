@@ -133,7 +133,7 @@ dp/              配置读写 + 服务主体（手机队列 + 11 个工具方法
 phone/           手机端 AutoX.js 脚本（纯 ES5，无依赖）
 tools/           dp_daemon.py（常驻）/ dp_mcp.py（MCP 工具层）
 tests/           smoke_test.py（纯逻辑）/ live_server.py（假手机端到端）
-docs/            PROTOCOL.md 等
+docs/            PROTOCOL.md（协议）、TODO.md（待办与降延迟优化）
 ```
 
 跑测试：
