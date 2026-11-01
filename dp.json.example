@@ -9,6 +9,8 @@
   "max_screenshot_kb": 1500,
   "allow_screenshot_sensitive": false,
   "allow_sensitive_write": false,
+  "preview_enabled": false,
+  "preview_min_interval_ms": 1500,
   "app_mode": "blocklist",
   "app_blocked": [],
   "app_allowed": []

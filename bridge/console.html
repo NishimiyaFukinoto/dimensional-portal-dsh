@@ -590,6 +590,7 @@
   .k-admin { background: rgba(150, 120, 220, 0.22); color: #5a3d8c; }
   .k-deny { background: rgba(232, 86, 143, 0.18); color: #a3235a; }
   .k-stop { background: rgba(240, 160, 60, 0.22); color: #86560f; }
+  .k-preview { background: rgba(123, 94, 167, 0.18); color: #4d3670; }
   .audit-detail { color: var(--text-soft); word-break: break-all; line-height: 1.5; }
   .audit-empty { color: var(--muted); font-size: 13px; padding: 12px 2px; }
 
@@ -642,6 +643,90 @@
     .card-stop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
     .card-stop h2 { margin: 0; flex: 0 0 auto; }
     .card-stop #stop-note { flex: 1 1 100%; margin: 0; }
+  }
+
+  /* ---------- V3：预览 / 队列 / 自检 / 日志 ---------- */
+  .conn-line {
+    margin-top: 12px; padding: 9px 12px; border-radius: 13px;
+    background: rgba(255, 255, 255, 0.55); border: 1px solid var(--line);
+    font-family: var(--mono); font-size: 12px; line-height: 1.5; color: var(--text-soft);
+    word-break: break-all;
+  }
+
+  .preview { margin-top: 14px; }
+  .preview-head {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; margin-bottom: 8px;
+  }
+  .preview-title {
+    font-family: var(--serif); font-size: 15px; font-weight: 600;
+    letter-spacing: 0.04em; color: var(--text);
+  }
+  .preview-box {
+    position: relative; min-height: 120px; border-radius: 16px; overflow: hidden;
+    border: 1px solid var(--line-strong); background: rgba(255, 255, 255, 0.5);
+  }
+  .preview-box[hidden] { display: none; }
+  .preview-box img {
+    display: block; width: 100%; height: auto; cursor: crosshair;
+    user-select: none; -webkit-user-drag: none;
+  }
+  .preview-box img[hidden] { display: none; }
+  .preview-empty { padding: 30px 14px; text-align: center; color: var(--muted); font-size: 13px; }
+  .preview-empty[hidden] { display: none; }
+
+  .queue { margin-top: 12px; display: grid; gap: 8px; }
+  .queue-empty { color: var(--muted); font-size: 12.5px; }
+  .queue-row {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px 10px;
+    padding: 8px 10px; border-radius: 12px; font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.62); border: 1px solid var(--line);
+  }
+  .queue-row .q-action { font-family: var(--mono); font-weight: 600; color: var(--text); }
+  .queue-row .q-id { font-family: var(--mono); font-size: 11.5px; color: var(--muted); }
+  .queue-row .q-age { margin-left: auto; color: var(--text-soft); white-space: nowrap; }
+  .queue-row .btn { padding: 5px 10px; font-size: 12px; border-radius: 999px; }
+
+  .checklist { margin-top: 10px; display: grid; gap: 6px; }
+  .check-row {
+    display: flex; align-items: baseline; gap: 8px; padding: 7px 10px;
+    border-radius: 10px; font-size: 12.5px;
+    background: rgba(255, 255, 255, 0.55); border: 1px solid var(--line);
+  }
+  .check-row .c-mark { flex: 0 0 auto; font-size: 13px; line-height: 1; }
+  .check-row .c-name { flex: 0 0 84px; color: var(--text); font-weight: 600; }
+  .check-row .c-detail { flex: 1 1 auto; font-family: var(--mono); color: var(--text-soft); word-break: break-all; }
+  .check-row.bad { border-color: rgba(217, 74, 99, 0.35); background: rgba(255, 240, 244, 0.8); }
+
+  .logview {
+    margin: 12px 0 0; max-height: 320px; overflow: auto; padding: 12px 14px;
+    border-radius: 14px; border: 1px solid var(--line);
+    background: rgba(60, 40, 90, 0.06);
+    font-family: var(--mono); font-size: 11.5px; line-height: 1.65; color: var(--text-soft);
+    white-space: pre-wrap; word-break: break-all;
+  }
+  .details-card summary {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 10px; cursor: pointer; list-style: none;
+  }
+  .details-card summary::-webkit-details-marker { display: none; }
+  .details-card summary span {
+    font-family: var(--serif); font-size: 19px; font-weight: 600;
+    letter-spacing: 0.04em; color: var(--text);
+  }
+  .details-card summary span::before {
+    content: ''; display: inline-block; width: 4px; height: 16px;
+    margin-right: 10px; border-radius: 999px; vertical-align: -2px;
+    background: linear-gradient(180deg, var(--rose), var(--violet));
+  }
+  .details-card summary small { color: var(--muted); font-size: 12px; font-weight: 400; }
+  .details-card[open] summary { margin-bottom: 4px; }
+
+  .audit-filter { margin: 0 0 10px; }
+  .audit-filter select, .audit-filter input { flex: 1 1 110px; min-width: 0; }
+
+  @media (min-width: 1080px) {
+    .card-stop .queue { flex: 1 1 100%; }
   }
 
   /* 手机：全宽 + 触摸友好 */
@@ -714,6 +799,24 @@
           <dt>排队任务</dt><dd id="queue">—</dd>
           <dt>运行时长</dt><dd id="uptime">—</dd>
         </dl>
+        <div class="conn-line" id="conn-line">连接详情读取中…</div>
+
+        <div class="preview" id="preview-wrap" hidden>
+          <div class="preview-head">
+            <span class="preview-title">实时预览</span>
+            <span class="note" id="preview-note" style="margin:0">每 2 秒刷新</span>
+          </div>
+          <div class="preview-box" id="preview-box">
+            <img id="preview-img" alt="手机画面" hidden draggable="false">
+            <div class="preview-empty" id="preview-empty">正在取第一张画面…</div>
+          </div>
+          <div class="note tight" id="preview-tip">在画面上点一下＝让手机点同一点，会先让你确认换算后的坐标。</div>
+        </div>
+
+        <div class="row" style="margin-top:14px">
+          <button class="btn ghost" id="selfcheck-btn" type="button">一键自检</button>
+        </div>
+        <div class="checklist" id="selfcheck-list" hidden></div>
       </section>
 
       <section class="card">
@@ -761,12 +864,21 @@
           </label>
           <div class="note tight">关着时敏感界面只能看（phone_see / phone_ui），不点、不输入。</div>
         </div>
+        <div class="toggle-row">
+          <label class="switch">
+            <input type="checkbox" id="sw-preview">
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">实时预览</span>
+          </label>
+          <div class="note tight">打开后「设备状态」里每 2 秒拉一张手机画面，只读会话也能看；关着时预览接口直接 403。</div>
+        </div>
         <div class="grid">
           <label class="field"><span>每分钟操作上限</span><input type="number" id="num-rate" min="1" max="600" step="1"></label>
           <label class="field"><span>任务超时（毫秒）</span><input type="number" id="num-timeout" min="1000" max="120000" step="500"></label>
           <label class="field"><span>离线判定（秒）</span><input type="number" id="num-offline" min="5" max="600" step="5"></label>
           <label class="field"><span>截图质量（1–95）</span><input type="number" id="num-quality" min="1" max="95" step="1"></label>
           <label class="field"><span>单图上限（KB）</span><input type="number" id="num-kb" min="100" max="20000" step="100"></label>
+          <label class="field"><span>预览最小间隔（毫秒）</span><input type="number" id="num-preview" min="200" max="60000" step="100"></label>
         </div>
         <div class="row" style="margin-top:14px">
           <button class="btn primary" id="save-policy" type="button">保存策略</button>
@@ -779,6 +891,7 @@
         <h2>急停</h2>
         <button class="btn danger" id="stop-btn" type="button">清空所有排队任务</button>
         <div class="note" id="stop-note">只清空还没下发的任务；已经在手机上执行的动作无法撤回。</div>
+        <div class="queue" id="queue-list"><div class="queue-empty">队列是空的。</div></div>
       </section>
 
     </div>
@@ -794,6 +907,11 @@
           <button class="btn ghost" id="app-refresh" type="button">刷新列表</button>
         </div>
         <div class="applist" id="app-list"><div class="audit-empty">读取中…</div></div>
+        <div class="row" style="margin-top:10px">
+          <button class="btn ghost" id="app-select-page" type="button">全选当前页</button>
+          <button class="btn ghost" id="app-select-none" type="button">全不选</button>
+          <button class="btn ghost" id="app-only-checked" type="button">只允许勾选的</button>
+        </div>
         <div class="row" style="margin-top:12px">
           <select class="appmode" id="app-mode">
             <option value="blocklist">默认放行，只禁个别的</option>
@@ -807,12 +925,29 @@
 
       <section class="card">
         <h2>操作审计</h2>
+        <div class="row audit-filter">
+          <select class="appmode" id="audit-kind" title="按类型筛选">
+            <option value="all">全部</option>
+            <option value="task">任务</option>
+            <option value="admin">改配置</option>
+            <option value="deny">拦截</option>
+            <option value="emergency_stop">急停</option>
+            <option value="preview">预览</option>
+          </select>
+          <input class="appsearch" id="audit-q" type="search" placeholder="搜关键词（动作 / 包名 / 原因）" autocomplete="off">
+          <button class="btn ghost" id="audit-export" type="button">导出 CSV</button>
+        </div>
         <div class="audit" id="audit-list"><div class="audit-empty">读取中…</div></div>
         <div class="row">
           <button class="btn ghost" id="audit-more" type="button">加载更多</button>
           <span class="note" id="audit-count" style="margin:0;flex:1 1 auto"></span>
         </div>
       </section>
+
+      <details class="card details-card" id="logs-card">
+        <summary><span>最近日志</span><small id="logs-note">点开读 tmp/daemon.log 尾部</small></summary>
+        <pre class="logview" id="log-lines">—</pre>
+      </details>
 
     </div>
   </div>
@@ -853,8 +988,20 @@
     deny_screenshot: '拦截图',
     deny_sensitive_write: '拦写操作',
     deny_blacklist: '拦黑名单',
-    emergency_stop: '急停'
+    deny_app: '拦应用',
+    emergency_stop: '急停',
+    preview: '预览'
   };
+
+  var role = 'admin';
+  var auditKind = 'all';
+  var auditQuery = '';
+  var auditFilterTimer = null;
+  var previewEnabled = false;
+  var previewTimer = null;
+  var previewBusy = false;
+  var lastQueueKey = '';
+  var lastDev = null;
 
   try {
     K = new URLSearchParams(window.location.search).get('k') || '';
@@ -957,6 +1104,7 @@
 
   function renderDevice(state) {
     var dev = state.device || {};
+    lastDev = dev;
     var online = state.online === true;
     var orb = $('pulse');
     orb.className = 'orb ' + (online ? 'on' : 'off');
@@ -983,20 +1131,270 @@
     else { setText('overlay', '未上报'); }
     setText('queue', String(state.queue || 0) + ' 个任务');
     setText('uptime', fmtUptime(state.uptime_s));
+    renderConnection(state);
 
     var now = new Date();
     setText('updated', '更新于 ' + now.toLocaleTimeString('zh-CN', { hour12: false }));
   }
 
+  // ---------------------------------------------------------------- 连接详情 / 预览 / 队列 / 自检 / 日志
+
+  function renderConnection(state) {
+    var conn = state.connection || {};
+    var parts = [];
+    var ip = String(conn.ip || '').trim();
+    if (ip && ip !== '-') { parts.push('IP ' + ip); } else { parts.push('IP 未知'); }
+    parts.push(conn.transport === 'tailscale' ? 'Tailscale 通道' : '局域网通道');
+    if (conn.agent_version) { parts.push('脚本 ' + conn.agent_version); }
+    var age = conn.last_heartbeat_age;
+    if (age !== null && age !== undefined && age !== '') { parts.push('心跳 ' + age + ' 秒前'); }
+    else { parts.push('心跳 未知'); }
+    parts.push('重连 ' + (Number(conn.reconnect_count) || 0) + ' 次');
+    setText('conn-line', parts.join(' · '));
+  }
+
+  function stopPreview() {
+    if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+    previewBusy = false;
+  }
+
+  function startPreview() {
+    if (previewTimer || !previewEnabled) { return; }
+    tickPreview();
+    previewTimer = setInterval(function () {
+      if (!document.hidden) { tickPreview(); }
+    }, 2000);
+  }
+
+  function setPreviewVisible(on) {
+    previewEnabled = on === true;
+    var wrap = $('preview-wrap');
+    if (wrap) { wrap.hidden = !previewEnabled; }
+    if (previewEnabled) { startPreview(); } else { stopPreview(); }
+  }
+
+  function tickPreview() {
+    var img = $('preview-img');
+    if (!img || !previewEnabled || previewBusy) { return; }
+    previewBusy = true;
+    var guard = setTimeout(function () { previewBusy = false; }, 12000);
+    img.onload = function () {
+      clearTimeout(guard);
+      previewBusy = false;
+      img.hidden = false;
+      var empty = $('preview-empty');
+      if (empty) { empty.hidden = true; }
+      note('preview-note', '更新于 ' + new Date().toLocaleTimeString('zh-CN', { hour12: false }), 'ok');
+    };
+    img.onerror = function () {
+      clearTimeout(guard);
+      previewBusy = false;
+      if (img.hidden) {
+        var empty = $('preview-empty');
+        if (empty) {
+          empty.hidden = false;
+          empty.textContent = '暂时取不到画面：手机可能不在线，或两张之间取太快（限频）。';
+        }
+      }
+      note('preview-note', '这一张没取到，2 秒后重试', 'bad');
+    };
+    img.src = withKey('/admin/preview?t=' + Date.now());
+  }
+
+  function previewPoint(e) {
+    var img = $('preview-img');
+    var dev = lastDev || {};
+    if (!img || img.hidden) { return; }
+    if (role !== 'admin') {
+      note('preview-tip', '只读会话不能点图。', 'bad');
+      return;
+    }
+    var w = Number(dev.w) || 0;
+    var h = Number(dev.h) || 0;
+    if (!w || !h) {
+      note('preview-tip', '还没读到手机分辨率，等设备状态刷新后再点。', 'bad');
+      return;
+    }
+    var rect = img.getBoundingClientRect();
+    if (!rect.width || !rect.height) { return; }
+    var px = Math.max(0, Math.min(rect.width, e.clientX - rect.left));
+    var py = Math.max(0, Math.min(rect.height, e.clientY - rect.top));
+    var x = Math.round(px / rect.width * w);
+    var y = Math.round(py / rect.height * h);
+    if (x >= w) { x = w - 1; }
+    if (y >= h) { y = h - 1; }
+    note('preview-tip', '预览上 (' + Math.round(px) + ', ' + Math.round(py) +
+      ') → 手机 (' + x + ', ' + y + ')');
+    confirmAction(
+      '让手机点这里？',
+      '预览坐标换算到手机屏幕是 (' + x + ', ' + y + ')，手机分辨率 ' + w + ' × ' + h + '。确认后才会真的点下去。',
+      '点这一下'
+    ).then(function (ok) {
+      if (!ok) { return; }
+      return api('/admin/tap', { method: 'POST', body: JSON.stringify({ x: x, y: y }) })
+        .then(function () {
+          note('preview-tip', '已在手机上点击 (' + x + ', ' + y + ')。', 'ok');
+        })
+        .catch(function (err) {
+          note('preview-tip', '点图失败：' + (err.message || '未知错误'), 'bad');
+        });
+    });
+  }
+
+  function renderQueue(items) {
+    var box = $('queue-list');
+    if (!box) { return; }
+    items = items || [];
+    var key = items.map(function (it) {
+      return String(it.id) + ':' + String(it.action) + ':' + String(it.age_s);
+    }).join('|');
+    if (key === lastQueueKey && box.childElementCount) { return; }
+    lastQueueKey = key;
+    box.innerHTML = '';
+    if (!items.length) {
+      var empty = document.createElement('div');
+      empty.className = 'queue-empty';
+      empty.textContent = '队列是空的。';
+      box.appendChild(empty);
+      return;
+    }
+    items.forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'queue-row';
+      var act = document.createElement('span');
+      act.className = 'q-action';
+      act.textContent = String(it.action || '未知动作');
+      var id = document.createElement('span');
+      id.className = 'q-id';
+      id.textContent = String(it.id || '');
+      var age = document.createElement('span');
+      age.className = 'q-age';
+      age.textContent = '等了 ' + (Number(it.age_s) || 0) + ' 秒';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'btn ghost';
+      btn.textContent = '取消';
+      btn.disabled = role !== 'admin';
+      btn.addEventListener('click', function () { cancelTask(it); });
+      row.appendChild(act);
+      row.appendChild(id);
+      row.appendChild(age);
+      row.appendChild(btn);
+      box.appendChild(row);
+    });
+  }
+
+  function loadQueue() {
+    if (timerStopped) { return; }
+    api('/admin/queue').then(function (data) {
+      renderQueue(data.items || []);
+    }).catch(function () { /* 队列读不到不影响主面板 */ });
+  }
+
+  function cancelTask(item) {
+    if (role !== 'admin') {
+      note('stop-note', '只读会话不能取消任务。', 'bad');
+      return;
+    }
+    var taskId = String((item && item.id) || '');
+    if (!taskId) { return; }
+    confirmAction(
+      '取消这个排队任务？',
+      '动作 ' + String(item.action || '未知') + '（' + taskId + '）还没下发到手机；取消后它不会再执行。',
+      '取消任务'
+    ).then(function (ok) {
+      if (!ok) { return; }
+      return api('/admin/queue/cancel', { method: 'POST', body: JSON.stringify({ id: taskId }) })
+        .then(function () {
+          note('stop-note', '已取消排队任务 ' + taskId + '。', 'ok');
+          lastQueueKey = '';
+          loadQueue();
+        })
+        .catch(function (err) {
+          note('stop-note', '取消失败：' + (err.message || '未知错误'), 'bad');
+        });
+    });
+  }
+
+  function renderSelfcheck(items) {
+    var box = $('selfcheck-list');
+    if (!box) { return; }
+    box.hidden = false;
+    box.innerHTML = '';
+    (items || []).forEach(function (it) {
+      var row = document.createElement('div');
+      row.className = 'check-row ' + (it.ok ? 'ok' : 'bad');
+      var mark = document.createElement('span');
+      mark.className = 'c-mark';
+      mark.textContent = it.ok ? '✅' : '❌';
+      var name = document.createElement('span');
+      name.className = 'c-name';
+      name.textContent = String(it.name || '');
+      var detail = document.createElement('span');
+      detail.className = 'c-detail';
+      detail.textContent = String(it.detail || '');
+      row.appendChild(mark);
+      row.appendChild(name);
+      row.appendChild(detail);
+      box.appendChild(row);
+    });
+  }
+
+  function runSelfcheck() {
+    var btn = $('selfcheck-btn');
+    if (btn) { btn.disabled = true; }
+    var oldLabel = btn ? btn.textContent : '';
+    if (btn) { btn.textContent = '自检中…'; }
+    api('/admin/selfcheck').then(function (data) {
+      var items = data.items || [];
+      renderSelfcheck(items);
+      if (btn) {
+        btn.textContent = '一键自检（' + (data.passed || 0) + '/' + (data.count || items.length) + ' 通过）';
+      }
+    }).catch(function (err) {
+      var box = $('selfcheck-list');
+      if (box) {
+        box.hidden = false;
+        box.innerHTML = '';
+        box.textContent = '自检失败：' + (err.message || '未知错误');
+      }
+      if (btn) { btn.textContent = oldLabel || '一键自检'; }
+    }).then(function () {
+      if (btn) { btn.disabled = false; }
+    });
+  }
+
+  function loadLogs() {
+    var card = $('logs-card');
+    if (!card || !card.open) { return; }
+    var pre = $('log-lines');
+    note('logs-note', '正在读取…');
+    api('/admin/logs?lines=80').then(function (data) {
+      var lines = data.lines || [];
+      if (pre) {
+        pre.textContent = lines.length
+          ? lines.join(NEWLINE)
+          : '（没有日志文件 tmp/daemon.log：daemon 默认只把日志打在自己的终端里，可以把它重定向到这个文件）';
+        pre.scrollTop = pre.scrollHeight;
+      }
+      note('logs-note', lines.length
+        ? ('共 ' + lines.length + ' 行 · ' + String(data.path || 'tmp/daemon.log'))
+        : '没有日志文件');
+    }).catch(function (err) {
+      note('logs-note', '读取失败：' + (err.message || '未知错误'), 'bad');
+    });
+  }
+
   // ---------------------------------------------------------------- 安全策略
 
-  var POLICY_INTS = ['num-rate', 'num-timeout', 'num-offline', 'num-quality', 'num-kb'];
+  var POLICY_INTS = ['num-rate', 'num-timeout', 'num-offline', 'num-quality', 'num-kb', 'num-preview'];
   var POLICY_KEYS = {
     'num-rate': 'rate_limit_per_minute',
     'num-timeout': 'task_timeout_ms',
     'num-offline': 'offline_after_seconds',
     'num-quality': 'screenshot_quality',
-    'num-kb': 'max_screenshot_kb'
+    'num-kb': 'max_screenshot_kb',
+    'num-preview': 'preview_min_interval_ms'
   };
 
   function renderSecurity(cfg) {
@@ -1009,6 +1407,9 @@
     if ($('sw-write')) {
       $('sw-write').checked = cfg.allow_sensitive_write === true;
       $('sw-write').dataset.wasOn = cfg.allow_sensitive_write === true ? '1' : '0';
+    }
+    if ($('sw-preview')) {
+      $('sw-preview').checked = cfg.preview_enabled === true;
     }
     POLICY_INTS.forEach(function (id) {
       var el = $(id);
@@ -1027,7 +1428,8 @@
   function collectPolicy() {
     var body = {
       allow_screenshot_sensitive: !!$('sw-shot').checked,
-      allow_sensitive_write: !!$('sw-write').checked
+      allow_sensitive_write: !!$('sw-write').checked,
+      preview_enabled: !!$('sw-preview').checked
     };
     POLICY_INTS.forEach(function (id) {
       var raw = ($(id).value || '').trim();
@@ -1159,6 +1561,7 @@
     if (kind === 'task') { return 'k-task'; }
     if (kind === 'admin') { return 'k-admin'; }
     if (kind === 'emergency_stop') { return 'k-stop'; }
+    if (kind === 'preview') { return 'k-preview'; }
     return 'k-deny';
   }
 
@@ -1210,14 +1613,17 @@
       if (!items.length) {
         var empty = document.createElement('div');
         empty.className = 'audit-empty';
-        empty.textContent = '还没有记录。让次元门动一下手机，这里就会出现。';
+        empty.textContent = (auditKind !== 'all' || auditQuery)
+          ? '没有匹配的记录，换个类型或关键词再试。'
+          : '还没有记录。让次元门动一下手机，这里就会出现。';
         box.appendChild(empty);
       }
     }
     var frag = document.createDocumentFragment();
     items.forEach(function (item) { frag.appendChild(auditRow(item)); });
     box.appendChild(frag);
-    setText('audit-count', '共 ' + (total || 0) + ' 条，已显示 ' + auditOffset + ' 条');
+    setText('audit-count', '共 ' + (total || 0) + ' 条，已显示 ' + auditOffset + ' 条' +
+      (auditKind !== 'all' || auditQuery ? '（已筛选）' : ''));
     var more = $('audit-more');
     if (more) { more.disabled = auditOffset >= (total || 0); }
   }
@@ -1225,7 +1631,10 @@
   function loadAudit(append) {
     var limit = 50;
     if (!append) { auditOffset = 0; }
-    return api('/admin/audit?limit=' + limit + '&offset=' + auditOffset)
+    var path = '/admin/audit?limit=' + limit + '&offset=' + auditOffset;
+    if (auditKind && auditKind !== 'all') { path += '&kind=' + encodeURIComponent(auditKind); }
+    if (auditQuery) { path += '&q=' + encodeURIComponent(auditQuery); }
+    return api(path)
       .then(function (data) {
         var items = data.items || [];
         auditOffset += items.length;
@@ -1236,6 +1645,19 @@
           stopPolling('密钥无效或已过期，请用日志里的新地址重新打开。');
         }
       });
+  }
+
+  function applyAuditFilter() {
+    auditKind = ($('audit-kind') && $('audit-kind').value) || 'all';
+    auditQuery = String(($('audit-q') && $('audit-q').value) || '').trim();
+    auditOffset = 0;
+    return loadAudit(false);
+  }
+
+  function exportAudit() {
+    var path = '/admin/audit.csv?kind=' + encodeURIComponent(auditKind || 'all');
+    if (auditQuery) { path += '&q=' + encodeURIComponent(auditQuery); }
+    window.location.href = withKey(path);
   }
 
   // ---------------------------------------------------------------- 应用访问
@@ -1343,6 +1765,28 @@
     img.addEventListener('error', function () { img.classList.add('missing'); });
   }
 
+  function appVisible(item, q) {
+    var pkg = String(item.package || '');
+    var name = String(item.name || pkg);
+    if (q && name.toLowerCase().indexOf(q) < 0 && pkg.toLowerCase().indexOf(q) < 0) { return false; }
+    if (appFilter === 'system' && !item.system) { return false; }
+    if (appFilter === 'user' && item.system) { return false; }
+    if (appFilter === 'none' && (item.system || catOf(pkg))) { return false; }
+    if (appFilter.indexOf('cat:') === 0 && catOf(pkg) !== appFilter.slice(4)) { return false; }
+    return true;
+  }
+
+  function visiblePackages() {
+    var q = String($('app-search').value || '').trim().toLowerCase();
+    var out = [];
+    appItems.forEach(function (item) {
+      if (!appVisible(item, q)) { return; }
+      var pkg = String(item.package || '');
+      if (pkg) { out.push(pkg); }
+    });
+    return out;
+  }
+
   function renderApps() {
     var list = $('app-list');
     if (!list) { return; }
@@ -1358,11 +1802,7 @@
     appItems.forEach(function (item) {
       var pkg = String(item.package || '');
       var name = String(item.name || pkg);
-      if (q && name.toLowerCase().indexOf(q) < 0 && pkg.toLowerCase().indexOf(q) < 0) { return; }
-      if (appFilter === 'system' && !item.system) { return; }
-      if (appFilter === 'user' && item.system) { return; }
-      if (appFilter === 'none' && (item.system || catOf(pkg))) { return; }
-      if (appFilter.indexOf('cat:') === 0 && catOf(pkg) !== appFilter.slice(4)) { return; }
+      if (!appVisible(item, q)) { return; }
 
       shown += 1;
       var row = document.createElement('div');
@@ -1496,13 +1936,53 @@
     });
   }
 
+  function batchSelect(all) {
+    if (role !== 'admin') {
+      note('app-save-note', '只读会话不能改应用权限。', 'bad');
+      return;
+    }
+    var pkgs = visiblePackages();
+    if (!pkgs.length) {
+      note('app-save-note', '当前筛选下没有应用。', 'warn');
+      return;
+    }
+    pkgs.forEach(function (pkg) {
+      if (all) { delete appBlocked[pkg]; } else { appBlocked[pkg] = true; }
+    });
+    appDirty = true;
+    renderApps();
+    note('app-save-note', (all ? '已勾选 ' : '已取消 ') + pkgs.length +
+      ' 个当前页应用，点「保存应用权限」生效。', 'bad');
+  }
+
+  function onlyChecked() {
+    if (role !== 'admin') {
+      note('app-save-note', '只读会话不能改应用权限。', 'bad');
+      return;
+    }
+    var mode = $('app-mode');
+    confirmAction(
+      '只放行勾选的这些？',
+      '会切到「只放行勾选的这些」模式并立刻保存：没勾选的应用之后全部被拦下，勾着的才允许访问。',
+      '切过去并保存'
+    ).then(function (ok) {
+      if (!ok) { return; }
+      if (mode) { mode.value = 'allowlist'; }
+      appDirty = true;
+      return saveApps();
+    });
+  }
+
   function loadState() {
     if (timerStopped) { return; }
     api('/admin/state').then(function (state) {
       hideBanner();
+      role = state.role || 'admin';
       renderDevice(state);
       var cfg = state.config || {};
       renderSecurity(cfg);
+      setPreviewVisible(cfg.preview_enabled === true);
+      loadQueue();
       if (state.security) { renderSecCard(state.security); }
       syncAppsFromConfig(cfg);
       if (!auditLoaded) { auditLoaded = true; loadAudit(false); loadApps(false); }
@@ -1554,16 +2034,32 @@
   POLICY_INTS.forEach(function (id) {
     $(id).addEventListener('input', markDirty);
   });
-  ['sw-shot', 'sw-write'].forEach(function (id) {
-    $(id).addEventListener('change', markDirty);
+  ['sw-shot', 'sw-write', 'sw-preview'].forEach(function (id) {
+    if ($(id)) { $(id).addEventListener('change', markDirty); }
   });
   $('audit-more').addEventListener('click', function () { loadAudit(true); });
+  if ($('audit-kind')) { $('audit-kind').addEventListener('change', applyAuditFilter); }
+  if ($('audit-q')) {
+    $('audit-q').addEventListener('input', function () {
+      if (auditFilterTimer) { clearTimeout(auditFilterTimer); }
+      auditFilterTimer = setTimeout(applyAuditFilter, 300);
+    });
+  }
+  if ($('audit-export')) { $('audit-export').addEventListener('click', exportAudit); }
+  if ($('app-select-page')) { $('app-select-page').addEventListener('click', function () { batchSelect(true); }); }
+  if ($('app-select-none')) { $('app-select-none').addEventListener('click', function () { batchSelect(false); }); }
+  if ($('app-only-checked')) { $('app-only-checked').addEventListener('click', onlyChecked); }
+  if ($('selfcheck-btn')) { $('selfcheck-btn').addEventListener('click', runSelfcheck); }
+  if ($('preview-img')) { $('preview-img').addEventListener('click', previewPoint); }
+  if ($('logs-card')) { $('logs-card').addEventListener('toggle', loadLogs); }
   if ($('app-refresh')) { $('app-refresh').addEventListener('click', function () { loadApps(true); }); }
   if ($('app-save')) { $('app-save').addEventListener('click', saveApps); }
   if ($('app-search')) { $('app-search').addEventListener('input', renderApps); }
   if ($('app-mode')) { $('app-mode').addEventListener('change', function () { appDirty = true; }); }
   document.addEventListener('visibilitychange', function () {
-    if (!document.hidden) { loadState(); }
+    if (document.hidden) { return; }
+    loadState();
+    if (previewEnabled) { tickPreview(); }
   });
 
   // 登录后靠 cookie 鉴权，地址里没有 k 也能用；没密码时仍可用 ?k= 打开

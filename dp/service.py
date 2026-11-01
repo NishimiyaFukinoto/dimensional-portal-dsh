@@ -118,16 +118,73 @@ _EDITABLE_INTS: dict[str, tuple[int, int, str]] = {
     "offline_after_seconds": (5, 600, "离线判定（秒）"),
     "screenshot_quality": (1, 95, "截图质量"),
     "max_screenshot_kb": (100, 20000, "单图上限（KB）"),
+    "preview_min_interval_ms": (200, 60000, "预览最小间隔（毫秒）"),
 }
 
 _EDITABLE_BOOLS: dict[str, str] = {
     "allow_screenshot_sensitive": "敏感界面允许截图",
     "allow_sensitive_write": "敏感界面允许点击输入",
+    "preview_enabled": "实时预览",
 }
 
 AUDIT_PAGE_DEFAULT = 50
 AUDIT_PAGE_MAX = 200
 AUDIT_READ_TAIL_BYTES = 512 * 1024
+
+# 控制台实时预览：手机端按 720 宽出图，控制台再等比放大到「你点的那一点」。
+PREVIEW_MAX_EDGE = 720
+PREVIEW_TIMEOUT_MS = 15000
+
+
+class _PreviewError(Exception):
+    """预览取不到图。offline / sensitive 让 HTTP 层给出不同的状态码。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        offline: bool = False,
+        sensitive: bool = False,
+    ) -> None:
+        super().__init__(message)
+        self.offline = offline
+        self.sensitive = sensitive
+
+
+def _audit_match(item: dict[str, Any], kind: str, keyword: str) -> bool:
+    """审计筛选：kind 支持 all / task / admin / deny / emergency_stop / preview。
+
+    deny 是一组（deny_rate、deny_screenshot、deny_sensitive_write、deny_app、
+    deny_blacklist 都算拦截）；关键字在整条记录里做不区分大小写的包含匹配。
+    """
+    if kind and kind not in ("all", "*"):
+        item_kind = str(item.get("kind") or "")
+        if kind == "deny":
+            if not item_kind.startswith("deny"):
+                return False
+        elif item_kind != kind:
+            return False
+    if keyword:
+        try:
+            hay = json.dumps(item, ensure_ascii=False).lower()
+        except (TypeError, ValueError):
+            hay = str(item).lower()
+        if keyword not in hay:
+            return False
+    return True
+
+
+def _path_writable(path: Path) -> bool:
+    """文件可写判断：文件存在就看它，不存在就看父目录（不会真的写东西）。"""
+    try:
+        if path.is_dir():
+            return False
+        if path.exists():
+            return os.access(str(path), os.W_OK)
+        return path.parent.exists() and os.access(str(path.parent), os.W_OK)
+    except OSError:
+        return False
+
 
 
 class ConsoleAdapter:
@@ -154,6 +211,8 @@ class ConsoleAdapter:
                 "max_screenshot_kb": int(round(plugin.max_shot_bytes / 1024)),
                 "allow_screenshot_sensitive": bool(plugin.allow_sensitive_shot),
                 "allow_sensitive_write": bool(plugin.allow_sensitive_write),
+                "preview_enabled": bool(plugin.preview_enabled),
+                "preview_min_interval_ms": int(plugin.preview_min_interval_ms),
                 "sensitive_packages": list(plugin.policy.sensitive_packages),
                 "package_blacklist": list(plugin.policy.package_blacklist),
                 "app_mode": plugin.policy.app_mode,
@@ -250,7 +309,98 @@ class ConsoleAdapter:
         """控制台点「刷新应用列表」时走这里：让手机上报一次。"""
         return await self.plugin.refresh_apps()
 
-    def audit_page(self, limit: Any = AUDIT_PAGE_DEFAULT, offset: Any = 0) -> dict[str, Any]:
+    # ---- 实时预览 / 点图（B1、B2） ----
+
+    def preview_enabled(self) -> bool:
+        return bool(getattr(self.plugin, "preview_enabled", False))
+
+    def preview_interval_ms(self) -> int:
+        return int(getattr(self.plugin, "preview_min_interval_ms", 1500) or 1500)
+
+    async def preview_frame(self) -> bytes:
+        """实时预览的一张图（JPEG 字节）；取不到时抛带 offline/sensitive 标记的异常。"""
+        return await self.plugin.preview_frame()
+
+    async def tap(self, x: Any, y: Any) -> dict[str, Any]:
+        """控制台点图：坐标已经换算成手机真实像素，走 phone_tap 同一条安全链路。"""
+        xi, yi, err = self.plugin._check_point(x, y)
+        if err:
+            raise ValueError(err)
+        return await self.plugin.submit_action(ACT_TAP, {"x": xi, "y": yi}, 8000)
+
+    # ---- 一键自检（C2） ----
+
+    def selfcheck(self) -> list[dict[str, Any]]:
+        plugin = self.plugin
+        server = getattr(plugin, "server", None)
+        hub = plugin.hub
+        dev = hub.device
+        out: list[dict[str, Any]] = []
+
+        def add(name: str, ok: bool, detail: str) -> None:
+            out.append({"name": name, "ok": bool(ok), "detail": detail})
+
+        running = bool(getattr(server, "running", False))
+        host = str(getattr(server, "host", "") or "0.0.0.0")
+        port = int(getattr(server, "port", 0) or 0)
+        add(
+            "监听端口",
+            running,
+            f"{host}:{port} 正在监听" if running else "HTTP 服务没起来，看看 daemon 日志",
+        )
+
+        age = hub.last_heartbeat_age
+        if hub.online:
+            detail = f"心跳 {age} 秒前" if age is not None else "在线"
+        elif age is None:
+            detail = "还没收到过心跳：确认手机脚本在跑"
+        else:
+            detail = f"最后一次心跳 {age} 秒前，已经掉线"
+        add("手机在线", hub.online, detail)
+
+        add(
+            "无障碍",
+            bool(dev.get("accessibility")),
+            "已开启" if dev.get("accessibility") else "未开启：在 AutoX.js 里打开无障碍服务",
+        )
+        add(
+            "录屏权限",
+            bool(dev.get("screen_capture")),
+            "已授权" if dev.get("screen_capture") else "未授权：在 AutoX.js 里授予截图权限",
+        )
+        overlay = dev.get("overlay")
+        if overlay is None:
+            add("悬浮窗", False, "手机端没上报（脚本版本可能太旧）")
+        else:
+            overlay_note = str(dev.get("overlay_note") or "").strip()
+            add("悬浮窗", bool(overlay), "守卫已开启" if overlay else (overlay_note or "守卫未开启"))
+
+        try:
+            icons = len(list(ICON_DIR.glob("*.png")))
+        except OSError:
+            icons = 0
+        add("图标缓存", True, f"已缓存 {icons} 个应用图标")
+
+        audit_file = Path(str(getattr(plugin, "audit_path", "") or "audit.jsonl"))
+        audit_ok = _path_writable(audit_file)
+        add("审计文件可写", audit_ok, str(audit_file) if audit_ok else f"{audit_file}（不可写）")
+
+        cfg_path = getattr(plugin.config, "path", None)
+        if cfg_path is None:
+            add("dp.json 可写", False, "配置不是从文件加载的，没法判断")
+        else:
+            file_path = Path(cfg_path)
+            file_ok = _path_writable(file_path)
+            add("dp.json 可写", file_ok, str(file_path) if file_ok else f"{file_path}（不可写）")
+        return out
+
+    def audit_page(
+        self,
+        limit: Any = AUDIT_PAGE_DEFAULT,
+        offset: Any = 0,
+        kind: str = "all",
+        q: str = "",
+    ) -> dict[str, Any]:
         try:
             size = max(1, min(int(limit), AUDIT_PAGE_MAX))
         except (TypeError, ValueError):
@@ -259,8 +409,25 @@ class ConsoleAdapter:
             skip = max(0, int(offset))
         except (TypeError, ValueError):
             skip = 0
-        items = self._audit_all()
+        items = self._audit_filtered(kind, q)
         return {"items": items[skip:skip + size], "total": len(items), "offset": skip}
+
+    def audit_export(self, kind: str = "all", q: str = "") -> list[dict[str, Any]]:
+        """导出用：返回筛选后的全部审计记录（新 → 旧）。"""
+        return list(self._audit_filtered(kind, q))
+
+    def _audit_filtered(self, kind: str = "all", q: str = "") -> list[dict[str, Any]]:
+        kind_s = str(kind or "all").strip().lower()
+        keyword = str(q or "").strip().lower()
+        items = self._audit_all()
+        if kind_s in ("", "all") and not keyword:
+            return items
+        out: list[dict[str, Any]] = []
+        for item in items:
+            if not _audit_match(item, kind_s, keyword):
+                continue
+            out.append(item)
+        return out
 
     def _audit_all(self) -> list[dict[str, Any]]:
         """读审计日志，新的在前；按 (mtime, size) 缓存，避免每次轮询都重读。"""
@@ -462,6 +629,10 @@ class ConsoleAdapter:
             plugin.allow_sensitive_shot = bool(change["allow_screenshot_sensitive"])
         if "allow_sensitive_write" in change:
             plugin.allow_sensitive_write = bool(change["allow_sensitive_write"])
+        if "preview_enabled" in change:
+            plugin.preview_enabled = bool(change["preview_enabled"])
+        if "preview_min_interval_ms" in change:
+            plugin.preview_min_interval_ms = int(change["preview_min_interval_ms"])
 
         plugin.policy.audit("admin", ip=ip, change=change)
         return self.snapshot()["config"]
@@ -539,6 +710,19 @@ class PhoneService:
         )
         self.allow_sensitive_shot = bool(self._cfg("allow_screenshot_sensitive", False))
         self.allow_sensitive_write = bool(self._cfg("allow_sensitive_write", False))
+        # 控制台实时预览：默认关，关着时 /admin/preview 直接 403
+        self.preview_enabled = bool(self._cfg("preview_enabled", False))
+        self.preview_min_interval_ms = max(
+            200,
+            min(
+                _cfg_int(
+                    self._cfg("preview_min_interval_ms", 1500),
+                    1500,
+                    "preview_min_interval_ms",
+                ),
+                60000,
+            ),
+        )
         self.paths: list[str] = []
 
     # ------------------------------------------------------------ 生命周期
@@ -706,9 +890,11 @@ class PhoneService:
         action: str,
         params: dict[str, Any] | None = None,
         timeout_ms: int | None = None,
+        audit_task: bool = True,
     ) -> dict[str, Any]:
         """下发任务；异常统一在这里转成中文提示，返回值是手机回传的 data。"""
-        self.policy.audit("task", action=action, params=params or {})
+        if audit_task:
+            self.policy.audit("task", action=action, params=params or {})
         try:
             return await self.hub.submit(
                 action,
@@ -737,6 +923,52 @@ class PhoneService:
         except _ToolError as exc:
             return {"ok": False, "text": str(exc)}
         return {"ok": True, "data": data}
+
+    async def preview_frame(self) -> bytes:
+        """控制台实时预览：截一张 720 宽的图，只回字节，不落盘、不记图片内容。
+
+        预览不占「每分钟操作上限」的配额（否则一边看一边操作很快就被限流），
+        但敏感界面照样遵守 allow_screenshot_sensitive。
+        """
+        if not self.preview_enabled:
+            raise _PreviewError("实时预览没打开")
+        if not self.hub.online:
+            raise _PreviewError("手机不在线", offline=True)
+        cur = str(self.hub.device.get("cur_pkg") or "")
+        sensitive, why = self.policy.is_sensitive_screen(cur)
+        if sensitive and not self.allow_sensitive_shot:
+            self.policy.audit("preview", ok=False, error="sensitive", pkg=cur)
+            raise _PreviewError(f"{why}，按安全策略不预览", sensitive=True)
+        try:
+            data = await self._submit(
+                ACT_SCREEN,
+                {"quality": self.quality, "max_edge": PREVIEW_MAX_EDGE},
+                PREVIEW_TIMEOUT_MS,
+                audit_task=False,
+            )
+        except _ToolError as exc:
+            message = str(exc)
+            self.policy.audit("preview", ok=False, error=message[:120])
+            raise _PreviewError(message, offline="不在线" in message) from exc
+        raw_b64 = str(data.get("image_b64") or "")
+        if not raw_b64:
+            self.policy.audit("preview", ok=False, error="手机没回图片数据")
+            raise _PreviewError("手机没回图片数据")
+        try:
+            raw = base64.b64decode(raw_b64, validate=False)
+        except (ValueError, TypeError) as exc:
+            self.policy.audit("preview", ok=False, error="图片数据坏了")
+            raise _PreviewError("手机回的图片数据坏了") from exc
+        if not raw:
+            self.policy.audit("preview", ok=False, error="图片是空的")
+            raise _PreviewError("手机回的图片是空的")
+        if len(raw) > self.max_shot_bytes:
+            self.policy.audit("preview", ok=False, bytes=len(raw), error="too_big")
+            raise _PreviewError(
+                f"预览图太大（{self._fmt_size(len(raw))}），把「截图质量」调低一点",
+            )
+        self.policy.audit("preview", ok=True, bytes=len(raw))
+        return raw
 
     def _save_shot(self, raw: bytes) -> Path:
         SHOT_DIR.mkdir(parents=True, exist_ok=True)

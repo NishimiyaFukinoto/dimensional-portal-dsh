@@ -18,7 +18,7 @@ sys.path.insert(0, str(ROOT))
 
 import asyncio  # noqa: E402
 
-from bridge.hub import DeviceHub, DeviceOffline, TaskTimeout  # noqa: E402
+from bridge.hub import DeviceHub, DeviceOffline, TaskRejected, TaskTimeout  # noqa: E402
 from dp import config as cfgmod  # noqa: E402
 from safety.policy import SafetyPolicy  # noqa: E402
 
@@ -61,6 +61,14 @@ def test_config() -> None:
     view = cfgmod.public_view(third)
     check("public_view 遮住 local_token", view["local_token"] != third["local_token"])
     check("public_view 保留 token（手机要抄）", view["token"] == third["token"])
+
+    check("默认不开实时预览", third.get("preview_enabled") is False)
+    check("默认预览间隔 1500", third.get("preview_min_interval_ms") == 1500)
+    example = (ROOT / "dp.json.example").read_text(encoding="utf-8")
+    check(
+        "示例配置带预览字段",
+        '"preview_enabled"' in example and '"preview_min_interval_ms"' in example,
+    )
 
 
 def test_policy() -> None:
@@ -129,6 +137,34 @@ async def test_hub() -> None:
         await task2
     except (asyncio.CancelledError, TaskTimeout, DeviceOffline):
         pass
+
+    hub.on_heartbeat({"device": "Fake", "ip": "100.64.0.9", "agent_version": "0.4.0"})
+    conn = hub.connection
+    check("连接详情带 IP", conn.get("ip") == "100.64.0.9", str(conn))
+    check("100.x 判为 tailscale", conn.get("transport") == "tailscale", str(conn))
+    check("连接详情带脚本版本", conn.get("agent_version") == "0.4.0", str(conn))
+    check("snapshot 带 connection", "connection" in hub.snapshot())
+
+    hub.on_heartbeat({"device": "Fake", "ip": "192.168.1.20", "agent_version": "0.4.0"})
+    check("IP 变化计入重连", hub.reconnect_count == 1, str(hub.reconnect_count))
+    check("局域网地址判为 lan", hub.connection.get("transport") == "lan", str(hub.connection))
+
+    hub.on_heartbeat({"device": "Fake"})
+    task3 = asyncio.create_task(hub.submit("tap", {"x": 5, "y": 6}, timeout_ms=3000))
+    await asyncio.sleep(0.05)
+    queued = hub.pending()
+    check("pending 列出排队任务", len(queued) == 1 and queued[0]["action"] == "tap", str(queued))
+    check("pending 带 id 与 age_s", bool(queued) and "id" in queued[0] and "age_s" in queued[0])
+    check("cancel 能丢掉排队任务", bool(queued) and hub.cancel(queued[0]["id"]) is True)
+    check("cancel 后队列为空", hub.pending() == [], str(hub.pending()))
+    rejected = False
+    try:
+        await task3
+    except TaskRejected:
+        rejected = True
+    check("被取消的任务立刻失败", rejected)
+    check("取消不存在的任务返回 False", hub.cancel("t_missing") is False)
+    check("取消计入 stats", hub.snapshot()["stats"].get("tasks_cancelled") == 1)
 
 
 def main() -> int:

@@ -85,6 +85,9 @@ class DeviceHub:
         self._last_heartbeat: float | None = None
         self._last_poll = 0.0
         self._seq = 0
+        # 手机换地址（比如 Wi-Fi 切到 Tailscale）就算一次重连，控制台拿来看链路稳不稳
+        self._last_ip = ""
+        self._reconnect_count = 0
 
         self.stats = {
             "heartbeats": 0,
@@ -95,6 +98,7 @@ class DeviceHub:
             "tasks_failed": 0,
             "tasks_timeout": 0,
             "tasks_expired": 0,
+            "tasks_cancelled": 0,
         }
 
     # ------------------------------------------------------------ 状态
@@ -119,6 +123,54 @@ class DeviceHub:
     def queue_size(self) -> int:
         return len(self._queue)
 
+    @property
+    def reconnect_count(self) -> int:
+        return self._reconnect_count
+
+    @property
+    def connection(self) -> dict[str, Any]:
+        """控制台「连接详情」：地址、脚本版本、心跳年龄、重连次数、链路类型。"""
+        ip = str(self._device.get("ip") or "")
+        return {
+            "ip": ip or "-",
+            "agent_version": str(self._device.get("agent_version") or ""),
+            "last_heartbeat_age": self.last_heartbeat_age,
+            "reconnect_count": self._reconnect_count,
+            "transport": "tailscale" if ip.startswith("100.") else "lan",
+        }
+
+    def pending(self) -> list[dict[str, Any]]:
+        """排队中的任务摘要（给控制台「急停」卡的队列列表用）。"""
+        now = time.monotonic()
+        return [
+            {
+                "id": task.id,
+                "action": task.action,
+                "age_s": round(max(0.0, now - task.created_at), 1),
+            }
+            for task in self._queue
+        ]
+
+    def cancel(self, task_id: str) -> bool:
+        """按 id 丢弃还没交给手机的任务。
+
+        已经投递给手机的任务不在 _queue 里，取消不了（返回 False）；
+        等待中的调用方会被打断，和急停一样收到 TaskRejected。
+        """
+        for task in list(self._queue):
+            if task.id != task_id:
+                continue
+            try:
+                self._queue.remove(task)
+            except ValueError:
+                return False
+            fut = self._waiters.pop(task.id, None)
+            if fut is not None and not fut.done():
+                fut.set_exception(TaskRejected("已被控制台取消"))
+            self.stats["tasks_cancelled"] += 1
+            return True
+        return False
+
     def snapshot(self) -> dict[str, Any]:
         """给 phone_status 工具用的完整快照。"""
         return {
@@ -126,6 +178,7 @@ class DeviceHub:
             "heartbeat_age": self.last_heartbeat_age,
             "device": dict(self._device),
             "queue": len(self._queue),
+            "connection": self.connection,
             "stats": dict(self.stats),
         }
 
@@ -266,6 +319,11 @@ class DeviceHub:
     def on_heartbeat(self, info: dict[str, Any]) -> dict[str, Any]:
         self._last_heartbeat = time.monotonic()
         self.stats["heartbeats"] += 1
+        ip = str(info.get("ip") or "")
+        if ip and self._last_ip and ip != self._last_ip:
+            self._reconnect_count += 1
+        if ip:
+            self._last_ip = ip
         clean = {k: v for k, v in info.items() if k != "ts"}
         clean["last_seen_ts"] = now_ts()
         self._device = clean

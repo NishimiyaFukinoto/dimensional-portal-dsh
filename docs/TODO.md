@@ -59,3 +59,16 @@
 | 独立仓库 | 用户要求 DSH 版单独一个 GitHub 仓库（当前只在本地 git） | 未做 |
 | 手机端版本号 | 手机脚本 `AGENT_VERSION` 仍是 `0.3.0`，与插件 0.4.1 并列时容易混 | 待定 |
 | AstrBot 版市场审核 | `v0.4.1` 仍 Waiting，通过后要做验收（索引条目 + 下载安装） | 等平台 |
+
+## 真机预览：先搁置（2026-11-02）
+
+代码已合入（`preview_enabled` 默认 `false`），但**真机没验收通过**，暂时关着：
+
+- 现象：`/admin/preview` 返回 502，手机端回 `java.lang.IllegalStateException: image has been recycled`。
+- 原因：AutoX 的 `captureScreen()` 复用同一个 Bitmap 实例；脚本保存后 `img.recycle()` 了它，
+  第二次截图就抛这个异常（`phone/dimensional_portal_agent.js` 原 `actScreen`）。
+- 已改：新增 `grabScreen()`（不复用、不回收；拿到已回收的实例就 `ensureCapture(true)` 再抓一次），
+  并用 `tools/make_phone_script.py --bases ...` 重新生成推到手机。**改动未经真机复测。**
+- 恢复验证的步骤：确认心跳在线 → 打开 `preview_enabled` → 连续拉两次 `/admin/preview`
+  （第二次应为 429 限流）→ 看日志里有没有新的 `preview` 审计记录。
+

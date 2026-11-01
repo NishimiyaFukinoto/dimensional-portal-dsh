@@ -471,29 +471,31 @@ function focusedEditable(root) {
 
 // ============================================================ 动作实现
 
+/**
+ * 拿一张可用的截图位图。
+ * AutoX 的 captureScreen() 会复用同一个 Bitmap 实例：一旦被 recycle 过，
+ * 下一次就抛 java.lang.IllegalStateException: image has been recycled。
+ * 所以这里既不复用也不回收，拿到的若是已回收的实例就重新申请一次录屏权限再抓。
+ */
+function grabScreen() {
+    for (var attempt = 0; attempt < 3; attempt++) {
+        var img = null;
+        try { img = captureScreen(); } catch (e) { img = null; }
+        if (img && !img.isRecycled()) return img;
+        try { ensureCapture(true); } catch (e2) { }
+        sleepSafe(500);
+    }
+    return null;
+}
+
 function actScreen(job) {
     var quality = job.params && job.params.quality ? job.params.quality : 55;
-    var img = null;
-    try {
-        img = captureScreen();
-    } catch (e) {
-        img = null;
-    }
-    if (!img) {
-        // 权限掉了（切后台、系统回收），重新要一次再试
-        ensureCapture(true);
-        sleepSafe(600);
-        try { img = captureScreen(); } catch (e2) { img = null; }
-    }
+    var img = grabScreen();
     if (!img) throw new Error("截图失败：没有屏幕录制权限，请在 AutoX.js 里重新运行脚本并允许「屏幕录制」");
 
     var dir = context.getExternalFilesDir(null).getAbsolutePath();
     var path = dir + "/dimensional_portal_shot.jpg";
-    try {
-        images.save(img, path, "jpg", quality);
-    } finally {
-        try { img.recycle(); } catch (e) { }
-    }
+    images.save(img, path, "jpg", quality);
 
     var b64 = "";
     var stream = null;

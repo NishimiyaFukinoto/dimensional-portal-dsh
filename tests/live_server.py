@@ -305,6 +305,148 @@ async def main() -> int:
             ) as resp:
                 await resp.read()
 
+            print("\n[9] 控制台观测接口（预览 / 队列 / 自检 / 日志 / 审计导出）")
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/state?k=live-admin"
+            ) as resp:
+                state = await resp.json()
+            conn = state.get("connection") or {}
+            check("/admin/state 带连接详情",
+                  conn.get("ip") == "127.0.0.1" and conn.get("transport") == "lan",
+                  str(conn)[:160])
+            check("/admin/state 带脚本版本", conn.get("agent_version") == "0.3.0", str(conn))
+            check("/admin/state 带角色", state.get("role") == "admin", str(state.get("role")))
+
+            async with session.get(f"http://{HOST}:{PORT}/admin/queue?k=live-admin") as resp:
+                queue = await resp.json()
+            check("/admin/queue 返回队列摘要",
+                  queue.get("ok") is True and isinstance(queue.get("items"), list),
+                  str(queue)[:160])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/queue/cancel?k=live-admin",
+                json={"id": "t_not_there"},
+            ) as resp:
+                await resp.read()
+            check("取消不存在的任务 404", resp.status == 404, f"status={resp.status}")
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/preview?k=live-admin"
+            ) as resp:
+                await resp.read()
+            check("预览关着时 403", resp.status == 403, f"status={resp.status}")
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/config?k=live-admin",
+                json={"readonly_password": "ro-pass-1"},
+            ) as resp:
+                ro_cfg = await resp.json()
+            check("设置只读口令", ro_cfg.get("ok") is True, str(ro_cfg)[:160])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/tap?rk=ro-pass-1", json={"x": 10, "y": 20}
+            ) as resp:
+                await resp.read()
+            check("只读会话点图 403", resp.status == 403, f"status={resp.status}")
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/queue/cancel?rk=ro-pass-1", json={"id": "t_x"}
+            ) as resp:
+                await resp.read()
+            check("只读会话取消任务 403", resp.status == 403, f"status={resp.status}")
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/config?k=live-admin",
+                json={"preview_enabled": True, "preview_min_interval_ms": 200},
+            ) as resp:
+                enabled = await resp.json()
+            check("打开实时预览",
+                  (enabled.get("applied") or {}).get("preview_enabled") is True,
+                  str(enabled)[:200])
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/preview?k=live-admin"
+            ) as resp:
+                frame = await resp.read()
+                ctype = resp.headers.get("Content-Type") or ""
+                cache = resp.headers.get("Cache-Control") or ""
+            check("预览返回 JPEG",
+                  resp.status == 200 and ctype.startswith("image/jpeg")
+                  and frame.startswith(b"\xff\xd8"), f"status={resp.status} len={len(frame)}")
+            check("预览禁止缓存", "no-store" in cache, cache)
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/preview?k=live-admin"
+            ) as resp:
+                await resp.read()
+            check("预览限频 429", resp.status == 429, f"status={resp.status}")
+
+            await asyncio.sleep(0.4)
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/preview?rk=ro-pass-1"
+            ) as resp:
+                await resp.read()
+            check("只读会话也能看预览", resp.status == 200, f"status={resp.status}")
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/selfcheck?k=live-admin"
+            ) as resp:
+                selfcheck = await resp.json()
+            names = [it.get("name") for it in (selfcheck.get("items") or [])]
+            check("/admin/selfcheck 8 项",
+                  selfcheck.get("ok") is True and len(names) == 8, str(names))
+            check("自检含关键项",
+                  "监听端口" in names and "手机在线" in names and "审计文件可写" in names,
+                  str(names))
+            check("自检多数通过", (selfcheck.get("passed") or 0) >= 6, str(selfcheck)[:200])
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/logs?lines=5&k=live-admin"
+            ) as resp:
+                logs = await resp.json()
+            check("/admin/logs 返回行数组",
+                  logs.get("ok") is True and isinstance(logs.get("lines"), list),
+                  str(logs)[:160])
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/logs?lines=5&rk=ro-pass-1"
+            ) as resp:
+                await resp.read()
+            check("只读会话能读日志", resp.status == 200, f"status={resp.status}")
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/audit?kind=preview&k=live-admin"
+            ) as resp:
+                audit_page = await resp.json()
+            kinds = {it.get("kind") for it in (audit_page.get("items") or [])}
+            check("审计按 preview 筛选",
+                  audit_page.get("ok") is True and kinds == {"preview"}, str(kinds))
+
+            async with session.get(
+                f"http://{HOST}:{PORT}/admin/audit.csv?kind=preview&k=live-admin"
+            ) as resp:
+                csv_body = await resp.read()
+                csv_ctype = resp.headers.get("Content-Type") or ""
+            check("审计 CSV 带 BOM 且是 text/csv",
+                  resp.status == 200 and "text/csv" in csv_ctype
+                  and csv_body.startswith(b"\xef\xbb\xbf"), f"status={resp.status} {csv_ctype}")
+            csv_text = csv_body.decode("utf-8-sig", errors="replace")
+            check("审计 CSV 有表头与预览行",
+                  "时间戳" in csv_text and "preview" in csv_text, csv_text[:120])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/tap?k=live-admin", json={"x": 540, "y": 1200}
+            ) as resp:
+                tapped = await resp.json()
+            check("点图接口调通",
+                  resp.status == 200 and tapped.get("ok") is True and tapped.get("x") == 540,
+                  str(tapped)[:200])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/tap?k=live-admin", json={"x": 99999, "y": 10}
+            ) as resp:
+                await resp.read()
+            check("越界点图 400", resp.status == 400, f"status={resp.status}")
+
             print("\n7 phone_stop")
             text = await svc.phone_stop()
             check("phone_stop 返回急停文案", "急停" in text, text)

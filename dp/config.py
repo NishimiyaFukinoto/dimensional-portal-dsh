@@ -18,6 +18,8 @@
     allow_sensitive_write     敏感界面是否允许点击/输入，默认 false
     sensitive_packages        敏感包名（覆盖默认表）
     package_blacklist         禁止操作的包名（覆盖默认表）
+    preview_enabled           控制台「实时预览」开关，默认 false（关着时预览接口直接 403）
+    preview_min_interval_ms   两张预览截图之间的最小间隔，默认 1500 毫秒
 """
 
 from __future__ import annotations
@@ -51,6 +53,9 @@ DEFAULTS: dict[str, Any] = {
     "max_screenshot_kb": 1500,
     "allow_screenshot_sensitive": False,
     "allow_sensitive_write": False,
+    # 控制台实时预览：默认关；打开后控制台每 2 秒拉一张 720 宽的截图
+    "preview_enabled": False,
+    "preview_min_interval_ms": 1500,
     # 应用访问：默认谁都放行，人可以在控制台里逐个禁掉，或切成只允许白名单
     "app_mode": "blocklist",
     "app_blocked": [],

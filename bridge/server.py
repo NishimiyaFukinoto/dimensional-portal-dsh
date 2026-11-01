@@ -20,8 +20,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import csv
 import hmac
+import io
 import logging
+import re
 import time
 from pathlib import Path
 from typing import Any
@@ -39,9 +43,18 @@ AUDIT_PAGE_DEFAULT = 50
 AUDIT_PAGE_MAX = 200
 DEFAULT_MAX_BODY = 16 * 1024 * 1024  # 截图 base64 走这条通道，留足余量
 
+# 控制台「最近日志」：读 daemon 日志尾部，最多回 500 行
+DAEMON_LOG_PATH = Path(__file__).resolve().parents[1] / "tmp" / "daemon.log"
+LOG_READ_TAIL_BYTES = 256 * 1024
+LOG_MAX_LINES = 500
+
+# 日志里不该给只读会话看的密钥（dp_daemon 启动时会把整份配置打进去）
+_LOG_SECRET_RE = re.compile(r'("(?:token|local_token|admin_token|session_secret)"\s*:\s*")([^"]*)(")')
+
 # 管理控制台：同一 IP 每分钟最多失败 10 次，超了锁 60 秒（内存计数，重启即清）
 ADMIN_MAX_FAILS = 10
 ADMIN_FAIL_WINDOW_S = 600.0  # 10 分钟内失败 10 次就锁 10 分钟
+PREVIEW_MAX_EDGE = 720  # 预览图长边（缩过之后才发给浏览器）
 SESSION_COOKIE = "dp_session"
 SESSION_HOURS = 12
 CONSOLE_HTML_PATH = Path(__file__).with_name("console.html")
@@ -108,6 +121,31 @@ LOGIN_HTML = """<!doctype html>
 """
 
 
+
+def _shrink_jpeg(blob: bytes, max_edge: int = 720, quality: int = 72) -> bytes:
+    """把手机截图缩到长边 max_edge，省带宽（手机上 q55 的 1080x2400 约 190KB → 720 约 55KB）。"""
+    try:
+        import io
+
+        from PIL import Image
+    except Exception:  # noqa: BLE001 - 没有 Pillow 就原样返回
+        return blob
+    try:
+        with Image.open(io.BytesIO(blob)) as im:
+            im = im.convert("RGB")
+            w, h = im.size
+            longest = max(w, h)
+            if longest <= max_edge:
+                return blob
+            scale = max_edge / float(longest)
+            im = im.resize((max(1, int(w * scale)), max(1, int(h * scale))), Image.LANCZOS)
+            out = io.BytesIO()
+            im.save(out, "JPEG", quality=quality, optimize=True, progressive=True)
+            return out.getvalue()
+    except Exception:  # noqa: BLE001 - 缩图失败不影响预览
+        return blob
+
+
 def _token_match(supplied: str, expected: str) -> bool:
     """常量时间比较 token；任一侧含非 ASCII 字符时按不匹配处理。
 
@@ -149,6 +187,9 @@ class PhoneBridgeServer:
         self._admin_routes_added = False
         self._admin_fails: dict[str, list[float]] = {}
         self._console_html: str | None = None
+        # 实时预览：同一时刻只打一张图，且记住上次成功的时刻做频率限制
+        self._preview_lock = asyncio.Lock()
+        self._preview_last_ok = 0.0
         self._runner: web.AppRunner | None = None
         self._site: web.TCPSite | None = None
         self.started_at: float = 0.0
@@ -292,6 +333,13 @@ class PhoneBridgeServer:
         self.app.router.add_get("/admin/state", self.handle_admin_state)
         self.app.router.add_post("/admin/config", self.handle_admin_config)
         self.app.router.add_get("/admin/audit", self.handle_admin_audit)
+        self.app.router.add_get("/admin/audit.csv", self.handle_admin_audit_csv)
+        self.app.router.add_get("/admin/queue", self.handle_admin_queue)
+        self.app.router.add_post("/admin/queue/cancel", self.handle_admin_queue_cancel)
+        self.app.router.add_get("/admin/selfcheck", self.handle_admin_selfcheck)
+        self.app.router.add_get("/admin/logs", self.handle_admin_logs)
+        self.app.router.add_get("/admin/preview", self.handle_admin_preview)
+        self.app.router.add_post("/admin/tap", self.handle_admin_tap)
         self.app.router.add_get("/admin/apps", self.handle_admin_apps)
         self.app.router.add_get("/admin/app-icon", self.handle_admin_app_icon)
         self.app.router.add_post("/admin/apps/refresh", self.handle_admin_apps_refresh)
@@ -690,6 +738,8 @@ class PhoneBridgeServer:
                 "ok": True,
                 "online": self.hub.online,
                 "device": self.hub.device,
+                "connection": self.hub.connection,
+                "role": self._admin_role(request),
                 "config": snap.get("config") or {},
                 "editable": snap.get("editable") or {},
                 "audit": snap.get("audit") or [],
@@ -732,7 +782,9 @@ class PhoneBridgeServer:
             offset = 0
         limit = max(1, min(limit, AUDIT_PAGE_MAX))
         offset = max(0, offset)
-        page = self.console.audit_page(limit=limit, offset=offset)
+        kind = str(request.query.get("kind") or "all").strip()
+        keyword = str(request.query.get("q") or "").strip()[:120]
+        page = self.console.audit_page(limit=limit, offset=offset, kind=kind, q=keyword)
         return web.json_response({"ok": True, **page})
 
     async def handle_admin_apps(self, request: web.Request) -> web.StreamResponse:
@@ -786,6 +838,224 @@ class PhoneBridgeServer:
         cleared = int(self.console.stop_all())
         log.info("[dimensional-portal] 控制台急停：清掉排队任务 %s 个", cleared)
         return web.json_response({"ok": True, "cleared": cleared})
+
+    # ------------------------------------------------------------ 预览 / 点图
+
+    async def handle_admin_preview(self, request: web.Request) -> web.StreamResponse:
+        """实时预览：一张 JPEG。只读会话也能看；没开开关 / 手机离线不会打手机。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        enabled = getattr(self.console, "preview_enabled", None)
+        if not callable(enabled) or not enabled():
+            return web.json_response(
+                {"ok": False, "error": "实时预览没打开：先去「安全策略」里打开它"},
+                status=403,
+            )
+        interval_getter = getattr(self.console, "preview_interval_ms", None)
+        interval_ms = int(interval_getter()) if callable(interval_getter) else 1500
+        wait_ms = int((interval_ms / 1000.0 - (time.monotonic() - self._preview_last_ok)) * 1000)
+        if self._preview_last_ok and wait_ms > 0:
+            seconds = max(1, round(wait_ms / 1000))
+            return web.json_response(
+                {
+                    "ok": False,
+                    "error": f"预览太快了，{seconds} 秒后再来",
+                    "retry_after_ms": wait_ms,
+                },
+                status=429,
+                headers={"Retry-After": str(seconds), "Cache-Control": "no-store"},
+            )
+        if self._preview_lock.locked():
+            return web.json_response(
+                {"ok": False, "error": "上一张还没回来，稍等一下"},
+                status=429,
+                headers={"Cache-Control": "no-store"},
+            )
+        grabber = getattr(self.console, "preview_frame", None)
+        if not callable(grabber):
+            return web.json_response({"ok": False, "error": "这个版本不支持实时预览"}, status=501)
+        async with self._preview_lock:
+            try:
+                blob = await grabber()
+            except Exception as exc:  # noqa: BLE001 - 手机端异常都转成人话
+                offline = bool(getattr(exc, "offline", False))
+                sensitive = bool(getattr(exc, "sensitive", False))
+                status = 503 if offline else (409 if sensitive else 502)
+                log.warning("[dimensional-portal] 预览失败：%s", exc)
+                return web.json_response({"ok": False, "error": str(exc)}, status=status)
+            self._preview_last_ok = time.monotonic()
+        blob = _shrink_jpeg(blob, PREVIEW_MAX_EDGE)
+        return web.Response(
+            body=blob,
+            headers={
+                "Content-Type": "image/jpeg",
+                "Cache-Control": "no-store, max-age=0",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    async def handle_admin_tap(self, request: web.Request) -> web.StreamResponse:
+        """点图：前端按 device.w/h 换算好的手机坐标，走 phone_tap 同一条安全链路。"""
+        guard = self._admin_guard(request, write=True)
+        if guard is not None:
+            return guard
+        try:
+            payload = await request.json(loads=loads)
+        except Exception:
+            return web.json_response({"ok": False, "error": "请求体必须是 JSON"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
+        tapper = getattr(self.console, "tap", None)
+        if not callable(tapper):
+            return web.json_response({"ok": False, "error": "这个版本不支持点图"}, status=501)
+        try:
+            result = await tapper(payload.get("x"), payload.get("y"))
+        except ValueError as exc:
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        except Exception as exc:  # noqa: BLE001
+            return web.json_response({"ok": False, "error": str(exc)}, status=502)
+        if not isinstance(result, dict) or not result.get("ok"):
+            text = str((result or {}).get("text") or "没点下去")
+            return web.json_response({"ok": False, "error": text}, status=409)
+        log.info("[dimensional-portal] 控制台点图：(%s, %s)", payload.get("x"), payload.get("y"))
+        return web.json_response(
+            {"ok": True, "x": payload.get("x"), "y": payload.get("y"), "result": result.get("data") or {}}
+        )
+
+    # ------------------------------------------------------------ 队列 / 自检 / 日志
+
+    async def handle_admin_queue(self, request: web.Request) -> web.StreamResponse:
+        """排队中的任务摘要（急停卡里逐条取消用）。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        items = self.hub.pending()
+        return web.json_response({"ok": True, "items": items, "count": len(items)})
+
+    async def handle_admin_queue_cancel(self, request: web.Request) -> web.StreamResponse:
+        guard = self._admin_guard(request, write=True)
+        if guard is not None:
+            return guard
+        try:
+            payload = await request.json(loads=loads)
+        except Exception:
+            return web.json_response({"ok": False, "error": "请求体必须是 JSON"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response({"ok": False, "error": "请求体必须是 JSON 对象"}, status=400)
+        task_id = str(payload.get("id") or "").strip()
+        if not task_id:
+            return web.json_response({"ok": False, "error": "缺少任务 id"}, status=400)
+        if not self.hub.cancel(task_id):
+            return web.json_response(
+                {"ok": False, "error": "这个任务已经不在队列里（可能刚被手机取走）"},
+                status=404,
+            )
+        log.info("[dimensional-portal] 控制台取消排队任务：%s", task_id)
+        return web.json_response({"ok": True, "cancelled": task_id})
+
+    async def handle_admin_selfcheck(self, request: web.Request) -> web.StreamResponse:
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        checker = getattr(self.console, "selfcheck", None)
+        if not callable(checker):
+            return web.json_response({"ok": False, "error": "这个版本不支持自检"}, status=501)
+        try:
+            items = list(checker())
+        except Exception as exc:  # noqa: BLE001
+            return web.json_response({"ok": False, "error": str(exc)}, status=500)
+        passed = sum(1 for item in items if item.get("ok"))
+        log.info("[dimensional-portal] 控制台自检：%s/%s 项通过", passed, len(items))
+        return web.json_response({"ok": True, "items": items, "count": len(items), "passed": passed})
+
+    async def handle_admin_logs(self, request: web.Request) -> web.StreamResponse:
+        """daemon 最近日志（读 tmp/daemon.log 尾部；文件不存在返回空数组）。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        count = _to_int(request.query.get("lines"), 80)
+        count = max(1, min(count, LOG_MAX_LINES))
+        lines = _tail_lines(DAEMON_LOG_PATH, count)
+        return web.json_response(
+            {"ok": True, "lines": lines, "count": len(lines), "path": str(DAEMON_LOG_PATH)}
+        )
+
+    async def handle_admin_audit_csv(self, request: web.Request) -> web.StreamResponse:
+        """审计导出：带 BOM 的 UTF-8 CSV，Excel 直接打开不乱码。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        kind = str(request.query.get("kind") or "all").strip()
+        keyword = str(request.query.get("q") or "").strip()[:120]
+        exporter = getattr(self.console, "audit_export", None)
+        if callable(exporter):
+            items = list(exporter(kind, keyword))
+        else:
+            page = self.console.audit_page(limit=AUDIT_PAGE_MAX, offset=0, kind=kind, q=keyword)
+            items = list(page.get("items") or [])
+        body = self._audit_csv(items)
+        filename = quote("dimensional-portal-audit.csv")
+        return web.Response(
+            body=body,
+            headers={
+                "Content-Type": "text/csv; charset=utf-8",
+                "Content-Disposition": f"attachment; filename=\"audit.csv\"; filename*=UTF-8''{filename}",
+                "Cache-Control": "no-store",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
+
+    @staticmethod
+    def _audit_csv(items: list[dict[str, Any]]) -> bytes:
+        columns = (
+            ("ts", "时间戳"),
+            ("kind", "类型"),
+            ("action", "动作"),
+            ("pkg", "应用"),
+            ("user", "用户"),
+            ("reason", "原因"),
+            ("target", "目标"),
+            ("dropped", "清掉任务"),
+            ("bytes", "字节数"),
+            ("ok", "成功"),
+            ("error", "错误"),
+            ("change", "改动"),
+            ("params", "参数"),
+        )
+        buf = io.StringIO()
+        writer = csv.writer(buf)
+        writer.writerow([label for _key, label in columns])
+        for item in items:
+            row: list[str] = []
+            for key, _label in columns:
+                value = item.get(key, "")
+                if isinstance(value, (dict, list)):
+                    value = dumps(value)
+                text = "" if value is None else str(value)
+                # 防 CSV 公式注入：Excel 会把 = + - @ 开头的单元格当公式
+                if text[:1] in ("=", "+", "-", "@"):
+                    text = "'" + text
+                row.append(text)
+            writer.writerow(row)
+        return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+def _tail_lines(path: Path, count: int) -> list[str]:
+    """读文件尾部 count 行；不存在/读不了就返回空列表。"""
+    try:
+        with open(path, "rb") as fh:
+            fh.seek(0, 2)
+            size = fh.tell()
+            fh.seek(max(0, size - LOG_READ_TAIL_BYTES))
+            raw = fh.read()
+    except OSError:
+        return []
+    lines = raw.decode("utf-8", errors="replace").splitlines()
+    if size > LOG_READ_TAIL_BYTES and lines:
+        lines = lines[1:]  # 第一行可能是半条
+    safe = [_LOG_SECRET_RE.sub(r"\1***\3", line) for line in lines]
+    return safe[-max(1, count):]
 
 
 def _to_int(value: Any, default: int = 0) -> int:
