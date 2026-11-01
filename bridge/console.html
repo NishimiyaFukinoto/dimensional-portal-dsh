@@ -1071,7 +1071,7 @@
       headers: { 'Content-Type': 'application/json' },
       body: options.body,
       cache: 'no-store',
-      credentials: 'omit'
+      credentials: 'same-origin'  // 走 cookie 会话，必须带上同源凭据
     }).then(function (res) {
       return res.json().catch(function () { return {}; }).then(function (data) {
         if (!res.ok || !data || data.ok !== true) {
