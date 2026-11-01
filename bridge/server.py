@@ -230,6 +230,7 @@ class PhoneBridgeServer:
         self.app.router.add_post("/admin/config", self.handle_admin_config)
         self.app.router.add_get("/admin/audit", self.handle_admin_audit)
         self.app.router.add_get("/admin/apps", self.handle_admin_apps)
+        self.app.router.add_get("/admin/app-icon", self.handle_admin_app_icon)
         self.app.router.add_post("/admin/apps/refresh", self.handle_admin_apps_refresh)
         self.app.router.add_post("/admin/stop", self.handle_admin_stop)
         self._admin_routes_added = True
@@ -591,6 +592,27 @@ class PhoneBridgeServer:
         snapshot = self.console.snapshot()
         apps = list(snapshot.get("apps") or [])
         return web.json_response({"ok": True, "apps": apps, "count": len(apps)})
+
+    async def handle_admin_app_icon(self, request: web.Request) -> web.StreamResponse:
+        """控制台「应用访问」卡的应用图标（PNG，按需取，磁盘缓存）。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        package = (request.query.get("pkg") or "").strip()
+        fetcher = getattr(self.console, "fetch_icon", None)
+        if not callable(fetcher):
+            return web.json_response({"ok": False, "error": "这个版本不支持图标"}, status=404)
+        blob = await fetcher(package)
+        if not blob:
+            return web.Response(status=404)
+        return web.Response(
+            body=blob,
+            headers={
+                "Content-Type": "image/png",
+                "Cache-Control": "public, max-age=604800",
+                "X-Content-Type-Options": "nosniff",
+            },
+        )
 
     async def handle_admin_apps_refresh(self, request: web.Request) -> web.StreamResponse:
         """去手机上现读一次应用列表（慢，几秒），读完返回。"""

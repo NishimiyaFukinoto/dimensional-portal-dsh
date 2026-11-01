@@ -49,6 +49,16 @@ DEFAULTS: dict[str, Any] = {
     "app_mode": "blocklist",
     "app_blocked": [],
     "app_allowed": [],
+    # 控制台「应用访问」里的手动分类：id 固定，name 可改
+    "app_categories": [
+        {"id": "system", "name": "系统应用"},
+        {"id": "social", "name": "社交聊天"},
+        {"id": "tools", "name": "工具效率"},
+        {"id": "media", "name": "影音娱乐"},
+        {"id": "game", "name": "游戏"},
+        {"id": "other", "name": "其他"},
+    ],
+    "app_category": {},
     "sensitive_packages": [],
     "package_blacklist": [],
 }

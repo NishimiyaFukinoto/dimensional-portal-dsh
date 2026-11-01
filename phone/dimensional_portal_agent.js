@@ -948,11 +948,25 @@ function actApps(job) {
     var labels = {};
     var i;
 
+    // 系统应用集合：pm list packages -s 列出来的就是系统签名的
+    var sysSet = {};
+    try {
+        var sysRes = shell("pm list packages -s", false);
+        var sysLines = s(sysRes).split(String.fromCharCode(10));
+        for (var si = 0; si < sysLines.length; si++) {
+            var sl = s(sysLines[si]).trim();
+            var sidx = sl.indexOf("package:");
+            if (sidx >= 0) sysSet[sl.substring(sidx + 8).trim()] = 1;
+        }
+    } catch (eSys) {
+        log("读系统应用清单失败：" + eSys);
+    }
+
     function push(pkg, label) {
         pkg = s(pkg).trim();
         if (!pkg || seen[pkg]) return;
         seen[pkg] = 1;
-        out.push({ package: pkg, name: s(label).trim() || pkg });
+        out.push({ package: pkg, name: s(label).trim() || pkg, system: sysSet[pkg] === 1 });
     }
 
     // 1) 快速拿到「包名 → 中文名」的映射（这一步可能不全，但名字质量最好）
@@ -1002,6 +1016,44 @@ function actApps(job) {
     return { apps: out, total: out.length, w: device.width, h: device.height };
 }
 
+function actIcon(job) {
+    // 单个应用图标：64x64 PNG 的 base64。按需取，避免一次传 500 张。
+    var pkg = s(job.params && (job.params.package || job.params.pkg)).trim();
+    if (!pkg) throw new Error("缺少 package");
+    var size = Number(job.params && job.params.size) || 64;
+    if (size < 24) size = 24;
+    if (size > 192) size = 192;
+
+    var drawable = null;
+    // 1) AutoX 自带的 app.getIcon（有些机型返回 null）
+    try {
+        drawable = app.getIcon(pkg);
+    } catch (e1) {
+        drawable = null;
+    }
+    // 2) 直接问 PackageManager，这条路更靠谱（自适应图标也能画）
+    if (!drawable) {
+        try {
+            var pm = context.getPackageManager();
+            drawable = pm.getApplicationIcon(pkg);
+        } catch (e2) {
+            drawable = null;
+        }
+    }
+    if (!drawable) return { package: pkg, found: false };
+
+    var bmp = android.graphics.Bitmap.createBitmap(size, size, android.graphics.Bitmap.Config.ARGB_8888);
+    var canvas = new android.graphics.Canvas(bmp);
+    drawable.setBounds(0, 0, size, size);
+    drawable.draw(canvas);
+    var out = new java.io.ByteArrayOutputStream();
+    bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+    var bytes = out.toByteArray();
+    var b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP);
+    try { bmp.recycle(); } catch (eR) { }
+    return { package: pkg, found: true, size: size, png_b64: b64 };
+}
+
 function executeJob(job) {
     var action = s(job.action);
     log("执行 " + job.id + " " + action);
@@ -1020,6 +1072,7 @@ function executeJob(job) {
         else if (action === "status") data = actStatus(job);
         else if (action === "windows") data = actWindows(job);
         else if (action === "apps") data = actApps(job);
+        else if (action === "icon") data = actIcon(job);
         else if (action === "camera_photo" || action === "camera_video"
             || action === "download_apk" || action === "install_apk") {
             throw new Error("动作 " + action + " 还没实现（M3/M4 里程碑）");

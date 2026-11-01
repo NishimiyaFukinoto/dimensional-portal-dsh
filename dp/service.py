@@ -15,6 +15,7 @@ import base64
 import json
 import logging
 import os
+import re
 import secrets
 import socket
 import time
@@ -24,6 +25,7 @@ from typing import Any
 from bridge.hub import DeviceHub, DeviceOffline, TaskRejected, TaskTimeout
 from bridge.protocol import (
     ACT_APPS,
+    ACT_ICON,
     ACT_FIND_TEXT,
     ACT_KEY,
     ACT_LONG_PRESS,
@@ -43,6 +45,10 @@ logger = logging.getLogger("dimensional_portal")
 DATA_DIR = Path(os.environ.get("DP_DATA_DIR") or (Path(__file__).resolve().parents[1] / "data"))
 SHOT_DIR = DATA_DIR / "shots"
 SHOT_KEEP_S = 3600  # 截图保留 1 小时（避免无限涨）
+ICON_DIR = DATA_DIR / "icons"  # 应用图标缓存（按需拉取，一个包一个 PNG）
+# 包名 / 分类 id 的形状校验：只用来拒绝奇怪输入，不追求完美
+_SAFE_PKG = re.compile(r"^[A-Za-z0-9_.]{2,128}$")
+_SAFE_CAT = re.compile(r"^[A-Za-z0-9_-]{1,24}$")
 
 # 手机端 actKey 只支持这些；menu/power 等无障碍注入不了的键不要写进来，
 # 否则插件放行、手机端抛「不认识的按键」，模型看到的是假支持。
@@ -153,12 +159,18 @@ class ConsoleAdapter:
                 "app_allowed": sorted(plugin.policy.app_allowed),
             },
             "apps": list(getattr(plugin, "_apps", [])),
+            "categories": list(plugin.config.get("app_categories") or []),
+            "category_map": dict(plugin.config.get("app_category") or {}),
             "audit": self.audit_page(limit=20)["items"],
             "editable": {
                 "ints": {key: [lo, hi] for key, (lo, hi, _label) in _EDITABLE_INTS.items()},
                 "bools": sorted(_EDITABLE_BOOLS),
             },
         }
+
+    async def fetch_icon(self, package: str) -> bytes | None:
+        """控制台按需取一个应用图标（转发给 PhoneService）。"""
+        return await self.plugin.fetch_icon(package)
 
     async def refresh_apps(self) -> list[dict[str, Any]]:
         """控制台点「刷新应用列表」时走这里：让手机上报一次。"""
@@ -262,6 +274,50 @@ class ConsoleAdapter:
             cleaned = sorted({x.strip() for x in raw if x.strip()})
             plugin.config[key] = cleaned
             change[key] = cleaned
+
+        # 手动分类：列表（id+name）与「包名 → 分类 id」映射
+        if "app_categories" in payload:
+            raw = payload.get("app_categories")
+            if not isinstance(raw, list):
+                raise ValueError("分类列表必须是数组")
+            cleaned_cats = []
+            seen_ids = set()
+            for item in raw:
+                if not isinstance(item, dict):
+                    raise ValueError("每个分类都要是 {id, name}")
+                cid = str(item.get("id") or "").strip()
+                cname = str(item.get("name") or "").strip()
+                if not cid or not cname:
+                    raise ValueError("分类的 id 和 name 都不能为空")
+                if not _SAFE_CAT.match(cid):
+                    raise ValueError("分类 id 只能用字母、数字、下划线、短横线")
+                if cid in seen_ids:
+                    raise ValueError("分类 id 不能重复")
+                seen_ids.add(cid)
+                cleaned_cats.append({"id": cid, "name": cname[:20]})
+            if len(cleaned_cats) > 40:
+                raise ValueError("分类最多 40 个")
+            plugin.config["app_categories"] = cleaned_cats
+            change["app_categories"] = cleaned_cats
+
+        if "app_category" in payload:
+            raw = payload.get("app_category")
+            if not isinstance(raw, dict):
+                raise ValueError("分类映射必须是对象")
+            valid_ids = {c["id"] for c in (plugin.config.get("app_categories") or [])}
+            cleaned_map = {}
+            for pkg, cid in raw.items():
+                pkg_s = str(pkg).strip()
+                cid_s = str(cid).strip()
+                if not pkg_s or not cid_s:
+                    continue
+                if not _SAFE_PKG.match(pkg_s):
+                    continue
+                if cid_s not in valid_ids:
+                    continue
+                cleaned_map[pkg_s] = cid_s
+            plugin.config["app_category"] = cleaned_map
+            change["app_category"] = len(cleaned_map)
 
         change = {key: value for key, value in change.items() if before.get(key) != value}
         if not change:
@@ -1052,6 +1108,34 @@ class PhoneService:
         self.policy.audit("emergency_stop", dropped=dropped)
         logger.warning("[dimensional-portal] 急停已执行，清空 %s 个任务", dropped)
         return dropped
+
+    async def fetch_icon(self, package: str, size: int = 64) -> bytes | None:
+        """取一个应用图标（PNG 字节）。磁盘缓存，取过就不再问手机。"""
+        package = (package or "").strip()
+        if not package or not _SAFE_PKG.match(package):
+            return None
+        ICON_DIR.mkdir(parents=True, exist_ok=True)
+        cached = ICON_DIR / f"{package}.png"
+        if cached.is_file() and cached.stat().st_size > 0:
+            return cached.read_bytes()
+        try:
+            data = await self._submit(ACT_ICON, {"package": package, "size": size}, 15000)
+        except (_ToolError, Exception):  # noqa: BLE001 - 图标失败不该影响列表
+            return None
+        raw = (data or {}).get("png_b64") if isinstance(data, dict) else None
+        if not raw:
+            return None
+        try:
+            blob = base64.b64decode(raw)
+        except Exception:  # noqa: BLE001
+            return None
+        if len(blob) < 64 or len(blob) > 512 * 1024:
+            return None
+        try:
+            cached.write_bytes(blob)
+        except OSError:
+            pass
+        return blob
 
     async def refresh_apps(self, timeout_ms: int = 25000) -> list[dict[str, Any]]:
         """让手机把装了什么报上来，缓存在内存里给控制台用。"""

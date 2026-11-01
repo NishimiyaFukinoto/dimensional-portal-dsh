@@ -103,12 +103,12 @@
   .wrap {
     position: relative;
     z-index: 1;
-    max-width: 660px;
+    max-width: 1200px;
     margin: 0 auto;
-    padding: 56px 20px 44px;
+    padding: clamp(26px, 3.4vh, 40px) 20px 30px;
   }
 
-  header { text-align: center; }
+  header { text-align: center; margin-bottom: 20px; }
 
   .eyebrow {
     font-family: var(--mono);
@@ -120,9 +120,9 @@
   }
 
   h1 {
-    margin: 10px 0 0;
+    margin: 6px 0 0;
     font-family: var(--serif);
-    font-size: clamp(38px, 9vw, 56px);
+    font-size: clamp(32px, 6.2vw, 46px);
     font-weight: 600;
     letter-spacing: 0.14em;
     line-height: 1.2;
@@ -137,9 +137,9 @@
   }
 
   .rule {
-    width: 74px;
+    width: 64px;
     height: 2px;
-    margin: 16px auto 14px;
+    margin: 11px auto 9px;
     border-radius: 2px;
     background: linear-gradient(90deg, transparent, var(--rose), var(--lavender), transparent);
     opacity: 0.9;
@@ -147,10 +147,10 @@
 
   .sub {
     display: inline-block;
-    margin-top: 4px;
-    padding: 6px 16px;
+    margin-top: 2px;
+    padding: 5px 14px;
     border-radius: 999px;
-    font-size: 13px;
+    font-size: 12.5px;
     color: var(--text-soft);
     letter-spacing: 0.02em;
     background: rgba(255, 255, 255, 0.62);
@@ -176,8 +176,8 @@
 
   .card {
     position: relative;
-    margin: 0 0 16px;
-    padding: 22px 22px 20px;
+    margin: 0;
+    padding: 20px 20px 18px;
     border-radius: var(--r);
     background: var(--glass);
     border: 1px solid rgba(255, 255, 255, 0.85);
@@ -208,7 +208,7 @@
     display: flex;
     align-items: center;
     gap: 10px;
-    margin: 0 0 16px;
+    margin: 0 0 14px;
     font-family: var(--serif);
     font-size: 17px;
     font-weight: 600;
@@ -413,7 +413,7 @@
     align-items: center;
     justify-content: center;
     gap: 9px;
-    margin-top: 26px;
+    margin-top: 18px;
     font-size: 12px;
     color: var(--muted);
     letter-spacing: 0.04em;
@@ -429,8 +429,8 @@
   }
 
   @media (max-width: 520px) {
-    .wrap { padding: 40px 14px 34px; }
-    .card { padding: 18px 16px 16px; border-radius: 18px; }
+    .wrap { padding: 26px 14px 26px; }
+    .card { padding: 16px 15px 15px; border-radius: 18px; }
     dl { grid-template-columns: 78px 1fr; gap: 8px 10px; }
     .meter .bar { width: 122px; }
     .row { gap: 8px; }
@@ -464,7 +464,28 @@
   .appsearch:focus { border-color: rgba(232, 86, 143, .55); box-shadow: 0 0 0 3px rgba(232, 86, 143, .12); }
   .applist {
     display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px;
-    max-height: clamp(240px, 46vh, 520px); overflow-y: auto; scrollbar-width: thin;
+    height: min(52vh, 520px); min-height: 220px; padding-right: 4px;
+    overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
+  }
+  .applist > .audit-empty { margin: auto; }
+  .apptabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
+  .apptab {
+    font: inherit; font-size: 12.5px; cursor: pointer; padding: 5px 11px; border-radius: 999px;
+    border: 1px solid rgba(122, 92, 168, .22); background: rgba(255, 255, 255, .62);
+    color: var(--text);
+  }
+  .apptab.on { background: linear-gradient(135deg, #f6a9c8, #b79ce8); color: #fff; border-color: transparent; }
+  .apptab.add { border-style: dashed; color: #7a5ca8; }
+  .apptab-n { opacity: .62; font-size: 11px; }
+  .appicon {
+    width: 28px; height: 28px; border-radius: 8px; flex: 0 0 28px;
+    background: rgba(122, 92, 168, .10); object-fit: cover;
+  }
+  .appicon.missing { background: linear-gradient(135deg, #e9d9f5, #f7d9e6); }
+  .appcat {
+    flex: 0 0 auto; margin-left: auto; font: inherit; font-size: 12px; padding: 3px 6px;
+    border-radius: 8px; border: 1px solid rgba(122, 92, 168, .22);
+    background: rgba(255, 255, 255, .8); color: inherit; max-width: 108px;
   }
   .approw {
     display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px;
@@ -526,9 +547,11 @@
   /* ---------- V2：审计 ---------- */
   .audit {
     display: flex; flex-direction: column; gap: 8px; margin: 8px 0 14px;
-    max-height: clamp(280px, 56vh, 620px); overflow-y: auto;
-    scrollbar-width: thin; -webkit-overflow-scrolling: touch;
+    height: min(34vh, 320px); min-height: 180px; overflow-y: auto;
+    overscroll-behavior: contain; scrollbar-width: thin;
+    -webkit-overflow-scrolling: touch;
   }
+  .audit > .audit-empty { margin: auto; }
   .audit-item {
     display: grid; grid-template-columns: 168px minmax(0, 1fr); gap: 4px 12px; align-items: baseline;
     padding: 10px 13px; border-radius: 13px; background: rgba(255, 255, 255, 0.62);
@@ -549,6 +572,74 @@
   .k-stop { background: rgba(240, 160, 60, 0.22); color: #86560f; }
   .audit-detail { color: var(--text-soft); word-break: break-all; line-height: 1.5; }
   .audit-empty { color: var(--muted); font-size: 13px; padding: 12px 2px; }
+
+  /* ---------- 布局：仪表盘网格 ---------- */
+  .dash {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: start;
+    gap: 12px;
+  }
+  .col {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    min-width: 0;
+  }
+
+  /* 宽屏：左列 设备状态 / 安全策略 / 急停，右列 应用访问 / 操作审计 */
+  @media (min-width: 1080px) {
+    .dash { grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr); gap: 18px; }
+    .col { gap: 18px; }
+    .card { padding: 22px 24px 20px; }
+    .col-b .card:nth-of-type(1) { animation-delay: 0.12s; }
+    .col-b .card:nth-of-type(2) { animation-delay: 0.22s; }
+  }
+
+  /* 中屏：单列，间距收紧 */
+  @media (max-width: 1079px) {
+    .wrap { max-width: 760px; }
+  }
+  @media (min-width: 721px) and (max-width: 1079px) {
+    .dash, .col { gap: 10px; }
+    .card { padding: 18px 20px 16px; }
+    h2 { margin-bottom: 12px; }
+  }
+
+  /* 数字框最后一个占满整行，避免半行留白 */
+  @media (min-width: 721px) {
+    .grid .field:last-child { grid-column: 1 / -1; }
+  }
+
+  /* 急停：左列最下方的紧凑安全条 */
+  .card-stop {
+    background: linear-gradient(150deg, rgba(255, 255, 255, 0.84), rgba(255, 240, 246, 0.74));
+    border-color: rgba(217, 74, 99, 0.26);
+    box-shadow: 0 20px 44px -30px rgba(217, 74, 99, 0.55);
+  }
+  .card-stop h2::before { background: linear-gradient(180deg, var(--bad), var(--rose)); }
+  @media (min-width: 1080px) {
+    .card-stop { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 16px; }
+    .card-stop h2 { margin: 0; flex: 0 0 auto; }
+    .card-stop #stop-note { flex: 1 1 100%; margin: 0; }
+  }
+
+  /* 手机：全宽 + 触摸友好 */
+  @media (max-width: 720px) {
+    .btn { min-height: 44px; }
+    .approw { min-height: 44px; padding: 10px 10px; gap: 8px; }
+    /* 窄屏放不下「名字 + 包名 + 分类」三列，先让包名让位，保证应用名完整可读 */
+    .approw .apppkg { display: none; }
+    .approw .appname { font-size: 14.5px; }
+    .switch { min-height: 44px; }
+    .apptab { display: inline-flex; align-items: center; min-height: 36px; padding: 7px 12px; }
+    .appsearch, .appmode { min-height: 44px; }
+    .row { flex-wrap: wrap; }
+    .row > .btn { flex: 1 1 auto; }
+    .row > .appmode { flex: 1 1 100%; }
+    .card-stop #stop-btn { width: 100%; }
+    .audit-item { padding: 10px 12px; }
+  }
 
   @media (prefers-reduced-motion: reduce) {
     *, *::before, *::after {
@@ -576,97 +667,108 @@
 
   <div class="banner" id="banner"></div>
 
-  <section class="card">
-    <h2>设备状态</h2>
-    <div class="stat">
-      <span class="orb" id="pulse"></span>
-      <span class="stat-text">
-        <strong id="online-text">—</strong>
-        <small id="device-id"></small>
-      </span>
-    </div>
-    <dl>
-      <dt>机型</dt><dd id="model">—</dd>
-      <dt>分辨率</dt><dd class="mono" id="screen-size">—</dd>
-      <dt>电量</dt><dd>
-        <span class="meter">
-          <span class="bar"><i id="battery-bar"></i></span>
-          <span id="battery">—</span>
-        </span>
-      </dd>
-      <dt>前台应用</dt><dd class="mono" id="cur-pkg">—</dd>
-      <dt>无障碍</dt><dd id="accessibility">—</dd>
-      <dt>悬浮窗</dt><dd id="overlay">—</dd>
-      <dt>排队任务</dt><dd id="queue">—</dd>
-      <dt>运行时长</dt><dd id="uptime">—</dd>
-    </dl>
-  </section>
+  <div class="dash">
+    <div class="col col-a">
 
-  <section class="card">
-    <h2>安全策略</h2>
-    <div class="toggle-row">
-      <label class="switch">
-        <input type="checkbox" id="sw-shot">
-        <span class="track"><span class="knob"></span></span>
-        <span class="switch-label">敏感界面允许截图</span>
-      </label>
-      <div class="note tight">开着时微信 / 支付宝 / 银行 / 设置的画面也会截图，并存到本机 data/shots 目录里。</div>
-    </div>
-    <div class="toggle-row">
-      <label class="switch">
-        <input type="checkbox" id="sw-write">
-        <span class="track"><span class="knob"></span></span>
-        <span class="switch-label">敏感界面允许点击输入</span>
-      </label>
-      <div class="note tight">关着时敏感界面只能看（phone_see / phone_ui），不点、不输入。</div>
-    </div>
-    <div class="grid">
-      <label class="field"><span>每分钟操作上限</span><input type="number" id="num-rate" min="1" max="600" step="1"></label>
-      <label class="field"><span>任务超时（毫秒）</span><input type="number" id="num-timeout" min="1000" max="120000" step="500"></label>
-      <label class="field"><span>离线判定（秒）</span><input type="number" id="num-offline" min="5" max="600" step="5"></label>
-      <label class="field"><span>截图质量（1–95）</span><input type="number" id="num-quality" min="1" max="95" step="1"></label>
-      <label class="field"><span>单图上限（KB）</span><input type="number" id="num-kb" min="100" max="20000" step="100"></label>
-    </div>
-    <div class="row" style="margin-top:14px">
-      <button class="btn primary" id="save-policy" type="button">保存策略</button>
-      <button class="btn ghost" id="reset-policy" type="button">还原本页</button>
-    </div>
-    <div class="note" id="policy-note">改完立刻生效：不用重载插件，也不会断开手机。</div>
-  </section>
+      <section class="card">
+        <h2>设备状态</h2>
+        <div class="stat">
+          <span class="orb" id="pulse"></span>
+          <span class="stat-text">
+            <strong id="online-text">—</strong>
+            <small id="device-id"></small>
+          </span>
+        </div>
+        <dl>
+          <dt>机型</dt><dd id="model">—</dd>
+          <dt>分辨率</dt><dd class="mono" id="screen-size">—</dd>
+          <dt>电量</dt><dd>
+            <span class="meter">
+              <span class="bar"><i id="battery-bar"></i></span>
+              <span id="battery">—</span>
+            </span>
+          </dd>
+          <dt>前台应用</dt><dd class="mono" id="cur-pkg">—</dd>
+          <dt>无障碍</dt><dd id="accessibility">—</dd>
+          <dt>悬浮窗</dt><dd id="overlay">—</dd>
+          <dt>排队任务</dt><dd id="queue">—</dd>
+          <dt>运行时长</dt><dd id="uptime">—</dd>
+        </dl>
+      </section>
 
-  <section class="card">
-    <h2>应用访问</h2>
-    <div class="note tight" id="app-note">决定「AI 能碰哪些应用」。取消勾选＝禁止访问，点了会被直接拦下。</div>
-    <div class="row" style="margin-top:12px">
-      <input class="appsearch" id="app-search" type="search" placeholder="搜应用名或包名" autocomplete="off">
-      <button class="btn ghost" id="app-refresh" type="button">刷新列表</button>
-    </div>
-    <div class="applist" id="app-list"><div class="audit-empty">读取中…</div></div>
-    <div class="row" style="margin-top:12px">
-      <select class="appmode" id="app-mode">
-        <option value="blocklist">默认放行，只禁个别的</option>
-        <option value="allowlist">只放行勾选的这些</option>
-      </select>
-      <button class="btn primary" id="app-save" type="button">保存应用权限</button>
-      <span class="note" id="app-count" style="margin:0;flex:1 1 auto"></span>
-    </div>
-    <div class="note" id="app-save-note">改完立刻生效：不用重载，也不会断开手机。</div>
-  </section>
+      <section class="card">
+        <h2>安全策略</h2>
+        <div class="toggle-row">
+          <label class="switch">
+            <input type="checkbox" id="sw-shot">
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">敏感界面允许截图</span>
+          </label>
+          <div class="note tight">开着时微信 / 支付宝 / 银行 / 设置的画面也会截图，并存到本机 data/shots 目录里。</div>
+        </div>
+        <div class="toggle-row">
+          <label class="switch">
+            <input type="checkbox" id="sw-write">
+            <span class="track"><span class="knob"></span></span>
+            <span class="switch-label">敏感界面允许点击输入</span>
+          </label>
+          <div class="note tight">关着时敏感界面只能看（phone_see / phone_ui），不点、不输入。</div>
+        </div>
+        <div class="grid">
+          <label class="field"><span>每分钟操作上限</span><input type="number" id="num-rate" min="1" max="600" step="1"></label>
+          <label class="field"><span>任务超时（毫秒）</span><input type="number" id="num-timeout" min="1000" max="120000" step="500"></label>
+          <label class="field"><span>离线判定（秒）</span><input type="number" id="num-offline" min="5" max="600" step="5"></label>
+          <label class="field"><span>截图质量（1–95）</span><input type="number" id="num-quality" min="1" max="95" step="1"></label>
+          <label class="field"><span>单图上限（KB）</span><input type="number" id="num-kb" min="100" max="20000" step="100"></label>
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn primary" id="save-policy" type="button">保存策略</button>
+          <button class="btn ghost" id="reset-policy" type="button">还原本页</button>
+        </div>
+        <div class="note" id="policy-note">改完立刻生效：不用重载插件，也不会断开手机。</div>
+      </section>
 
-  <section class="card">
-    <h2>操作审计</h2>
-    <div class="audit" id="audit-list"><div class="audit-empty">读取中…</div></div>
-    <div class="row">
-      <button class="btn ghost" id="audit-more" type="button">加载更多</button>
-      <span class="note" id="audit-count" style="margin:0;flex:1 1 auto"></span>
-    </div>
-  </section>
+      <section class="card card-stop">
+        <h2>急停</h2>
+        <button class="btn danger" id="stop-btn" type="button">清空所有排队任务</button>
+        <div class="note" id="stop-note">只清空还没下发的任务；已经在手机上执行的动作无法撤回。</div>
+      </section>
 
-  <section class="card">
-    <h2>急停</h2>
-    <button class="btn danger" id="stop-btn" type="button">清空所有排队任务</button>
-    <div class="note" id="stop-note">只清空还没下发的任务；已经在手机上执行的动作无法撤回。</div>
-  </section>
+    </div>
+
+    <div class="col col-b">
+
+      <section class="card">
+        <h2>应用访问</h2>
+        <div class="note tight" id="app-note">决定「AI 能碰哪些应用」。取消勾选＝禁止访问，点了会被直接拦下。</div>
+        <div class="apptabs" id="app-tabs"></div>
+        <div class="row" style="margin-top:10px">
+          <input class="appsearch" id="app-search" type="search" placeholder="搜应用名或包名" autocomplete="off">
+          <button class="btn ghost" id="app-refresh" type="button">刷新列表</button>
+        </div>
+        <div class="applist" id="app-list"><div class="audit-empty">读取中…</div></div>
+        <div class="row" style="margin-top:12px">
+          <select class="appmode" id="app-mode">
+            <option value="blocklist">默认放行，只禁个别的</option>
+            <option value="allowlist">只放行勾选的这些</option>
+          </select>
+          <button class="btn primary" id="app-save" type="button">保存应用权限</button>
+          <span class="note" id="app-count" style="margin:0;flex:1 1 auto"></span>
+        </div>
+        <div class="note" id="app-save-note">改完立刻生效：不用重载，也不会断开手机。</div>
+      </section>
+
+      <section class="card">
+        <h2>操作审计</h2>
+        <div class="audit" id="audit-list"><div class="audit-empty">读取中…</div></div>
+        <div class="row">
+          <button class="btn ghost" id="audit-more" type="button">加载更多</button>
+          <span class="note" id="audit-count" style="margin:0;flex:1 1 auto"></span>
+        </div>
+      </section>
+
+    </div>
+  </div>
 
   <footer>
     <span class="seal"></span>
@@ -956,6 +1058,104 @@
   var appItems = [];
   var appBlocked = {};
   var appDirty = false;
+  var appCats = [];
+  var appCatMap = {};
+  var appFilter = 'all';
+  var iconObserver = null;
+  var consoleKey = new URLSearchParams(location.search).get('k') || '';
+
+  function catName(id) {
+    for (var i = 0; i < appCats.length; i++) {
+      if (appCats[i].id === id) { return appCats[i].name; }
+    }
+    return '';
+  }
+
+  function catOf(pkg) { return appCatMap[pkg] || ''; }
+
+  function countIn(filter) {
+    var n = 0;
+    appItems.forEach(function (it) {
+      if (filter === 'all') { n += 1; return; }
+      if (filter === 'system') { if (it.system) { n += 1; } return; }
+      if (filter === 'user') { if (!it.system) { n += 1; } return; }
+      if (filter === 'none') { if (!catOf(it.package)) { n += 1; } return; }
+      if (filter.indexOf('cat:') === 0) { if (catOf(it.package) === filter.slice(4)) { n += 1; } }
+    });
+    return n;
+  }
+
+  function renderTabs() {
+    var box = $('app-tabs');
+    if (!box) { return; }
+    box.innerHTML = '';
+    var tabs = [
+      { id: 'all', name: '全部', n: countIn('all') },
+      { id: 'system', name: '系统应用', n: countIn('system') },
+      { id: 'user', name: '已安装', n: countIn('user') }
+    ];
+    appCats.forEach(function (c) {
+      tabs.push({ id: 'cat:' + c.id, name: c.name, n: countIn('cat:' + c.id) });
+    });
+    tabs.push({ id: 'none', name: '未分类', n: countIn('none') });
+
+    tabs.forEach(function (t) {
+      var b = document.createElement('button');
+      b.type = 'button';
+      b.className = 'apptab' + (appFilter === t.id ? ' on' : '');
+      b.innerHTML = '';
+      b.appendChild(document.createTextNode(t.name + ' '));
+      var num = document.createElement('span');
+      num.className = 'apptab-n';
+      num.textContent = String(t.n);
+      b.appendChild(num);
+      b.addEventListener('click', function () { appFilter = t.id; renderTabs(); renderApps(); });
+      box.appendChild(b);
+    });
+
+    var add = document.createElement('button');
+    add.type = 'button';
+    add.className = 'apptab add';
+    add.textContent = '＋ 新建分类';
+    add.addEventListener('click', addCategory);
+    box.appendChild(add);
+  }
+
+  function addCategory() {
+    var name = window.prompt('新分类叫什么？（比如：社交、工作、游戏）');
+    if (!name) { return; }
+    name = String(name).trim();
+    if (!name) { return; }
+    var id = 'c' + Date.now().toString(36);
+    appCats.push({ id: id, name: name.slice(0, 20) });
+    appDirty = true;
+    note('app-save-note', '新分类「' + name + '」还没保存，点「保存应用权限」。', 'bad');
+    renderTabs();
+    renderApps();
+  }
+
+  function lazyIcon(img, pkg) {
+    if (!iconObserver) {
+      if (typeof IntersectionObserver === 'function') {
+        iconObserver = new IntersectionObserver(function (entries) {
+          entries.forEach(function (e) {
+            if (!e.isIntersecting) { return; }
+            var el = e.target;
+            if (el.dataset.loaded) { return; }
+            el.dataset.loaded = '1';
+            el.src = '/admin/app-icon?pkg=' + encodeURIComponent(el.dataset.pkg) +
+              '&k=' + encodeURIComponent(consoleKey);
+            iconObserver.unobserve(el);
+          });
+        }, { root: null, rootMargin: '120px' });
+      }
+    }
+    if (iconObserver) { iconObserver.observe(img); }
+    else {
+      img.src = '/admin/app-icon?pkg=' + encodeURIComponent(pkg) + '&k=' + encodeURIComponent(consoleKey);
+    }
+    img.addEventListener('error', function () { img.classList.add('missing'); });
+  }
 
   function renderApps() {
     var list = $('app-list');
@@ -965,6 +1165,7 @@
     if (!appItems.length) {
       list.innerHTML = '<div class="audit-empty">还没读到应用列表，点右边的「刷新列表」。</div>';
       setText('app-count', '');
+      renderTabs();
       return;
     }
     var shown = 0;
@@ -972,38 +1173,84 @@
       var pkg = String(item.package || '');
       var name = String(item.name || pkg);
       if (q && name.toLowerCase().indexOf(q) < 0 && pkg.toLowerCase().indexOf(q) < 0) { return; }
+      if (appFilter === 'system' && !item.system) { return; }
+      if (appFilter === 'user' && item.system) { return; }
+      if (appFilter === 'none' && catOf(pkg)) { return; }
+      if (appFilter.indexOf('cat:') === 0 && catOf(pkg) !== appFilter.slice(4)) { return; }
+
       shown += 1;
-      var row = document.createElement('label');
+      var row = document.createElement('div');
       var checked = !appBlocked[pkg];
       row.className = 'approw' + (checked ? '' : ' off');
+
       var cb = document.createElement('input');
       cb.type = 'checkbox';
       cb.checked = checked;
+      cb.title = checked ? '允许访问' : '禁止访问';
       cb.addEventListener('change', function () {
         if (cb.checked) { delete appBlocked[pkg]; } else { appBlocked[pkg] = true; }
         row.className = 'approw' + (cb.checked ? '' : ' off');
         appDirty = true;
         note('app-save-note', '有改动没保存，点「保存应用权限」。', 'bad');
       });
+
+      var img = document.createElement('img');
+      img.className = 'appicon';
+      img.alt = '';
+      img.dataset.pkg = pkg;
+      lazyIcon(img, pkg);
+
       var nm = document.createElement('span');
       nm.className = 'appname';
       nm.textContent = name;
+
       var pk = document.createElement('span');
       pk.className = 'apppkg';
       pk.textContent = pkg;
+
+      var catSel = document.createElement('select');
+      catSel.className = 'appcat';
+      catSel.title = '手动分类';
+      var opt0 = document.createElement('option');
+      opt0.value = '';
+      opt0.textContent = item.system ? '系统' : '未分类';
+      catSel.appendChild(opt0);
+      appCats.forEach(function (c) {
+        if (c.id === 'system') { return; }
+        var o = document.createElement('option');
+        o.value = c.id;
+        o.textContent = c.name;
+        catSel.appendChild(o);
+      });
+      catSel.value = catOf(pkg);
+      catSel.addEventListener('change', function () {
+        if (catSel.value) { appCatMap[pkg] = catSel.value; } else { delete appCatMap[pkg]; }
+        appDirty = true;
+        note('app-save-note', '分类有改动，点「保存应用权限」。', 'bad');
+        renderTabs();
+      });
+
       row.appendChild(cb);
+      row.appendChild(img);
       row.appendChild(nm);
       row.appendChild(pk);
+      row.appendChild(catSel);
       list.appendChild(row);
     });
     if (!shown) {
-      list.innerHTML = '<div class="audit-empty">没有匹配「' + q + '」的应用。</div>';
+      list.innerHTML = '<div class="audit-empty">' +
+        (q ? '没有匹配「' + q + '」的应用。' : '这个分类下还没有应用。') + '</div>';
     }
-    setText('app-count', '共 ' + appItems.length + ' 个应用');
+    setText('app-count', '共 ' + appItems.length + ' 个应用（当前显示 ' + shown + '）');
+    renderTabs();
   }
 
   function syncAppsFromConfig(cfg) {
-    if (appDirty) { return; }
+    appCats = (cfg.app_categories || []).slice();
+    appCatMap = {};
+    var m = cfg.app_category || {};
+    Object.keys(m).forEach(function (k) { appCatMap[k] = m[k]; });
+    if (appDirty) { renderTabs(); return; }
     var blocked = {};
     (cfg.app_blocked || []).forEach(function (pkg) { blocked[String(pkg)] = true; });
     appBlocked = blocked;
@@ -1021,8 +1268,10 @@
       appItems = (data.apps || []).slice();
       appDirty = false;
       renderApps();
+      var sysCount = appItems.filter(function (i) { return i.system; }).length;
       note('app-note', appItems.length
-        ? ('从手机读到 ' + appItems.length + ' 个应用。取消勾选＝禁止访问。')
+        ? ('从手机读到 ' + appItems.length + ' 个应用（系统 ' + sysCount + ' / 已安装 ' +
+           (appItems.length - sysCount) + '）。取消勾选＝禁止访问。')
         : '还没读到应用列表，点「刷新列表」从手机现读一次。');
     }).catch(function (err) {
       note('app-note', '读取失败：' + (err.message || '未知错误'), 'bad');
@@ -1042,13 +1291,20 @@
     var mode = $('app-mode').value;
     api('/admin/config', {
       method: 'POST',
-      body: JSON.stringify({ app_mode: mode, app_blocked: blocked, app_allowed: allowed })
+      body: JSON.stringify({
+        app_mode: mode,
+        app_blocked: blocked,
+        app_allowed: allowed,
+        app_categories: appCats,
+        app_category: appCatMap
+      })
     }).then(function (data) {
       appDirty = false;
       note('app-save-note', mode === 'allowlist'
         ? ('已保存：之后只放行勾选的 ' + allowed.length + ' 个应用。')
         : ('已保存：' + blocked.length + ' 个应用被禁止访问。'), 'ok');
       if (data && data.applied) { renderSecurity(data.applied); }
+      renderTabs();
     }).catch(function (err) {
       note('app-save-note', '保存失败：' + (err.message || '未知错误'), 'bad');
     });
