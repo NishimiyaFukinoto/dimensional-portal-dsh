@@ -8,13 +8,13 @@
 ```
 DSH 会话（AI）
    ↓ MCP stdio（tools/dp_mcp.py）
-本机 HTTP 127.0.0.1:8765（tools/dp_daemon.py → dp.service.PhoneService → bridge/server.py）
+本机 HTTP 127.0.0.1:8766（tools/dp_daemon.py → dp.service.PhoneService → bridge/server.py）
    ↑ 手机主动长轮询（AutoX.js 脚本，无障碍服务执行）
 手机 Android
 ```
 
 - **手机在 CGNAT / 移动网络后面，永远不做服务端**：它只主动连电脑。
-- 电脑不需要公网 IP；要远程用就走 Tailscale（或任何让手机能访问到 8765 的通道）。
+- 电脑不需要公网 IP；要远程用就走 Tailscale（或任何让手机能访问到 8766 的通道）。
 - 同一个 daemon 可以接多台手机（按 `device_id` 区分），但默认只用最新心跳的那台。
 
 ## 2. 认证

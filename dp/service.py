@@ -282,7 +282,7 @@ class PhoneService:
 
         token = str(self._cfg("token", "") or "").strip()
         host = str(self._cfg("listen_host", "0.0.0.0"))
-        port = max(1, min(_cfg_int(self._cfg("listen_port", 8765), 8765, "listen_port"), 65535))
+        port = max(1, min(_cfg_int(self._cfg("listen_port", 8766), 8766, "listen_port"), 65535))
         offline_after = max(
             5.0,
             min(

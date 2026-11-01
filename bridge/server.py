@@ -66,7 +66,7 @@ class PhoneBridgeServer:
         hub: DeviceHub,
         token: str,
         host: str = "0.0.0.0",
-        port: int = 8765,
+        port: int = 8766,
         max_body: int = DEFAULT_MAX_BODY,
         policy: Any = None,
         debug_token: str = "",

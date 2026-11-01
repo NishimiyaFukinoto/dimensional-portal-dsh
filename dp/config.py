@@ -3,7 +3,8 @@
 字段（全部可选，除 token）：
 
     token                     手机和电脑之间的共享密钥；必须和手机脚本里的 TOKEN 一致
-    listen_host / listen_port 监听地址，默认 0.0.0.0:8765（要能被手机访问到）
+    listen_host / listen_port 监听地址，默认 0.0.0.0:8766（要能被手机访问到）
+                              默认用 8766 是为了避开 AstrBot 版插件占用的 8765，两个可以同时开
     local_token               本机 MCP 进程调 daemon 用的密钥；留空自动生成
     admin_token               管理控制台密钥；填 off 彻底关闭控制台；留空自动生成
     debug_token               POST /debug/submit 用的调试密钥；默认关闭
@@ -33,7 +34,7 @@ DEFAULT_PATH = ROOT / "dp.json"
 DEFAULTS: dict[str, Any] = {
     "token": "",
     "listen_host": "0.0.0.0",
-    "listen_port": 8765,
+    "listen_port": 8766,
     "local_token": "",
     "admin_token": "",
     "debug_token": "",

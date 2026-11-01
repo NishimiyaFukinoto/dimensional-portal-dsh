@@ -60,7 +60,7 @@ async def _run() -> int:
         LOG.error("启动失败：检查 dp.json 里的 token 与 listen_port 是否可用")
         return 2
 
-    port = int(cfg.get("listen_port") or 8765)
+    port = int(cfg.get("listen_port") or 8766)
     host = str(cfg.get("listen_host") or "0.0.0.0")
     ips = _local_ips()
 

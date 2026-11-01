@@ -1,6 +1,6 @@
 """把仓库里的手机脚本模板生成为「带真实地址和 token」的本地脚本。
 
-仓库里的 `phone/dimensional_portal_agent.js` 只有占位符（`http://100.x.y.z:8765` /
+仓库里的 `phone/dimensional_portal_agent.js` 只有占位符（`http://100.x.y.z:8766` /
 `改成你的token`），是为了开源脱敏。真正推到手机上跑的是这个脚本生成的 `.local.js`
 （已在 .gitignore 里，不会被提交）。
 
@@ -97,7 +97,7 @@ def main() -> int:
             '  --bases "100.88.64.39,10.172.89.162"'
         )
 
-    default_port = args.port or int(cfg.get("listen_port") or 8765)
+    default_port = args.port or int(cfg.get("listen_port") or 8766)
     bases = normalize_bases(args.bases, default_port)
 
     if not TEMPLATE.exists():

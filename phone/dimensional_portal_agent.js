@@ -25,8 +25,8 @@
 // 连不上时自动退回局域网地址。换电脑/换网络只改这个数组，第一个填 Tailscale 的 100.x。
 // 怎么查电脑的 100.x：电脑上执行 "C:\Program Files\Tailscale\tailscale.exe" ip -4
 var BASES = [
-    "http://100.x.y.z:8765",       // ← 改成电脑的 Tailscale 地址
-    "http://192.168.1.10:8765"     // ← 改成电脑的局域网地址（可选，删掉也行）
+    "http://100.x.y.z:8766",       // ← 改成电脑的 Tailscale 地址
+    "http://192.168.1.10:8766"     // ← 改成电脑的局域网地址（可选，删掉也行）
 ];
 var baseIndex = 0;
 var BASE = BASES[baseIndex];

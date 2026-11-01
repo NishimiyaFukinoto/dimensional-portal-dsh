@@ -44,7 +44,7 @@ def test_config() -> None:
     check("首次加载会生成文件", tmp.is_file())
     check("自动生成 token", bool(cfg.get("token")))
     check("自动生成 local_token", bool(cfg.get("local_token")))
-    check("默认端口 8765", cfg.get("listen_port") == 8765)
+    check("默认端口 8766", cfg.get("listen_port") == 8766)
     check("默认不开敏感截图", cfg.get("allow_screenshot_sensitive") is False)
 
     again = cfgmod.load(tmp)

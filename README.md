@@ -7,7 +7,7 @@
 NapCat，没有第二个模型**，大脑就是正在跟你说话的这个 DSH。
 
 ```
-DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> tools/dp_daemon.py(:8765)
+DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> tools/dp_daemon.py(:8766)
                                                               ↑ 长轮询
                                                         手机 · AutoX.js 脚本
 ```
@@ -29,7 +29,7 @@ DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> too
 | 急停 | `phone_stop` | 清空还没下发的任务 |
 | 看状态 | `phone_status` | 在线、电量、分辨率、权限 |
 
-控制台（浏览器）：`http://<本机IP>:8765/console?k=<admin_token>`，能看设备状态、
+控制台（浏览器）：`http://<本机IP>:8766/console?k=<admin_token>`，能看设备状态、
 调安全策略、翻操作审计、急停。
 
 ---
@@ -47,9 +47,9 @@ DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> too
 第一次运行会生成 `dp.json`，里面自动带了 `token` 与 `local_token`，屏幕上也打印出来：
 
 ```
- 手机连这个 http://192.168.1.10:8765
+ 手机连这个 http://192.168.1.10:8766
  token      3Xk…（抄到手机脚本里）
- 控制台     http://192.168.1.10:8765/console?k=…
+ 控制台     http://192.168.1.10:8766/console?k=…
 ```
 
 ### 2. 手机侧：装 AutoX.js + 跑脚本
@@ -85,7 +85,9 @@ dsh-panel mcp add --name dp-phone --stdio \
 | 字段 | 默认 | 说明 |
 | --- | --- | --- |
 | `token` | 自动生成 | 手机 ↔ 电脑共享密钥，必须和手机脚本一致；为空拒绝启动 |
-| `listen_host` `listen_port` | `0.0.0.0` `8765` | 要能被手机访问到 |
+| `listen_host` `listen_port` | `0.0.0.0` `8766` | 要能被手机访问到 |
+
+> 默认用 **8766** 而不是 8765：AstrBot 版插件默认占 8765，两个版本可以同时跑（手机连哪个由脚本里的地址决定）。
 | `local_token` | 自动生成 | 本机 MCP 进程调 daemon 用，只认回环地址 |
 | `admin_token` | 自动生成 | 控制台密钥；填 `off` 彻底关闭控制台 |
 | `debug_token` | 空 | 非空才开 `POST /debug/submit`，平时别开 |

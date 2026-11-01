@@ -3,7 +3,7 @@
 
 DSH 通过 stdio 起这个进程，它本身不碰手机，只把工具调用转发给同机的 daemon：
 
-    DSH 会话 --MCP(stdio)--> 本进程 --HTTP(回环+X-Local-Token)--> daemon(:8765) <--长轮询-- 手机
+    DSH 会话 --MCP(stdio)--> 本进程 --HTTP(回环+X-Local-Token)--> daemon(:8766) <--长轮询-- 手机
 
 工具名和 AstrBot 版一致（phone_see / phone_tap / ...），逻辑全在 daemon 里，
 所以这里只做「参数打包 + 把返回文本原样交回去」。
@@ -31,7 +31,7 @@ from dp.config import load  # noqa: E402
 
 CFG = load(create=False)
 HOST = os.environ.get("DP_HOST", "127.0.0.1")
-PORT = int(os.environ.get("DP_PORT") or CFG.get("listen_port") or 8765)
+PORT = int(os.environ.get("DP_PORT") or CFG.get("listen_port") or 8766)
 LOCAL_TOKEN = os.environ.get("DP_LOCAL_TOKEN") or str(CFG.get("local_token") or "")
 
 mcp = FastMCP("dimensional-portal")
