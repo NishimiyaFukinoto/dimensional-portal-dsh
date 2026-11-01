@@ -1079,7 +1079,7 @@
       if (filter === 'all') { n += 1; return; }
       if (filter === 'system') { if (it.system) { n += 1; } return; }
       if (filter === 'user') { if (!it.system) { n += 1; } return; }
-      if (filter === 'none') { if (!catOf(it.package)) { n += 1; } return; }
+      if (filter === 'none') { if (!it.system && !catOf(it.package)) { n += 1; } return; }
       if (filter.indexOf('cat:') === 0) { if (catOf(it.package) === filter.slice(4)) { n += 1; } }
     });
     return n;
@@ -1097,12 +1097,13 @@
     appCats.forEach(function (c) {
       tabs.push({ id: 'cat:' + c.id, name: c.name, n: countIn('cat:' + c.id) });
     });
-    tabs.push({ id: 'none', name: '未分类', n: countIn('none') });
+    tabs.push({ id: 'none', name: '未分类', n: countIn('none'), tip: '已安装但还没分类的应用' });
 
     tabs.forEach(function (t) {
       var b = document.createElement('button');
       b.type = 'button';
       b.className = 'apptab' + (appFilter === t.id ? ' on' : '');
+      if (t.tip) { b.title = t.tip; }
       b.innerHTML = '';
       b.appendChild(document.createTextNode(t.name + ' '));
       var num = document.createElement('span');
@@ -1175,7 +1176,7 @@
       if (q && name.toLowerCase().indexOf(q) < 0 && pkg.toLowerCase().indexOf(q) < 0) { return; }
       if (appFilter === 'system' && !item.system) { return; }
       if (appFilter === 'user' && item.system) { return; }
-      if (appFilter === 'none' && catOf(pkg)) { return; }
+      if (appFilter === 'none' && (item.system || catOf(pkg))) { return; }
       if (appFilter.indexOf('cat:') === 0 && catOf(pkg) !== appFilter.slice(4)) { return; }
 
       shown += 1;
