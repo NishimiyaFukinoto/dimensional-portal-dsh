@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging.handlers
 import os
 import signal
 import socket
@@ -105,12 +106,50 @@ async def _run() -> int:
     return 0
 
 
+def _force_utf8_stdio() -> None:
+    """把 stdout/stderr 固定成 UTF-8。
+
+    Windows 上 `python daemon.py > log.txt` 默认按 GBK 写，控制台读日志就会乱码；
+    这里显式改成 UTF-8，重定向到文件后也是干净的。
+    """
+    for stream in (sys.stdout, sys.stderr):
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+        except (AttributeError, ValueError):
+            pass
+
+
+LOG_FILE = Path(os.environ.get("DP_LOG_FILE") or (ROOT / "tmp" / "daemon.log"))
+
+
+def _setup_logging(level: str) -> None:
+    """同时打到屏幕和文件。
+
+    文件用 UTF-8 显式写（不依赖 shell 重定向的编码），并做 2 MB × 3 的轮转，
+    这样控制台「最近日志」永远能读到干净的文本。
+    """
+    fmt = logging.Formatter("%(asctime)s %(levelname)-7s %(name)s: %(message)s", datefmt="%H:%M:%S")
+    root = logging.getLogger()
+    root.setLevel(level)
+    for handler in list(root.handlers):
+        root.removeHandler(handler)
+    stream = logging.StreamHandler()
+    stream.setFormatter(fmt)
+    root.addHandler(stream)
+    try:
+        LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        rotating = logging.handlers.RotatingFileHandler(
+            LOG_FILE, maxBytes=2 * 1024 * 1024, backupCount=3, encoding="utf-8"
+        )
+        rotating.setFormatter(fmt)
+        root.addHandler(rotating)
+    except OSError as exc:  # 目录只读之类，不影响主流程
+        root.warning("日志文件打不开（只打屏幕）：%s", exc)
+
+
 def main() -> int:
-    logging.basicConfig(
-        level=os.environ.get("DP_LOG_LEVEL", "INFO").upper(),
-        format="%(asctime)s %(levelname)-7s %(name)s: %(message)s",
-        datefmt="%H:%M:%S",
-    )
+    _force_utf8_stdio()
+    _setup_logging(os.environ.get("DP_LOG_LEVEL", "INFO").upper())
     try:
         return asyncio.run(_run())
     except KeyboardInterrupt:

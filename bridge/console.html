@@ -495,6 +495,21 @@
     color: var(--text);
   }
   .apptab.on { background: linear-gradient(135deg, #f6a9c8, #b79ce8); color: #fff; border-color: transparent; }
+  .appnewhost:empty { display: none; }
+  .appnewhost { margin-top: 8px; }
+  .appnew { display: inline-flex; align-items: center; gap: 6px; }
+  .appnew-input {
+    width: 128px; padding: 5px 10px; font: inherit; font-size: 13px;
+    color: var(--text); border-radius: 999px;
+    border: 1px solid rgba(120, 96, 160, 0.35); background: rgba(255, 255, 255, 0.92);
+  }
+  .appnew-input:focus { outline: 2px solid rgba(160, 120, 210, 0.5); outline-offset: 1px; }
+  .appnew-ok, .appnew-cancel {
+    padding: 5px 10px; font: inherit; font-size: 13px; border-radius: 999px;
+    border: 1px solid rgba(120, 96, 160, 0.28); cursor: pointer;
+    background: rgba(255, 255, 255, 0.8); color: var(--text);
+  }
+  .appnew-ok { background: linear-gradient(135deg, #e882c4, #a98ce0); color: #fff; border-color: transparent; }
   .apptab.add { border-style: dashed; color: #7a5ca8; }
   .apptab-n { opacity: .62; font-size: 11px; }
   .appicon {
@@ -902,6 +917,7 @@
         <h2>应用访问</h2>
         <div class="note tight" id="app-note">决定「AI 能碰哪些应用」。取消勾选＝禁止访问，点了会被直接拦下。</div>
         <div class="apptabs" id="app-tabs"></div>
+        <div class="appnewhost" id="app-newcat-host"></div>
         <div class="row" style="margin-top:10px">
           <input class="appsearch" id="app-search" type="search" placeholder="搜应用名或包名" autocomplete="off">
           <button class="btn ghost" id="app-refresh" type="button">刷新列表</button>
@@ -1667,6 +1683,8 @@
   var appCats = [];
   var appCatMap = {};
   var appFilter = 'all';
+  var addPending = false;  // 正在新建分类（这块输入框要能扛住 5 秒一次的轮询重绘）
+  var addDraft = '';
   var iconObserver = null;
   var consoleKey = new URLSearchParams(location.search).get('k') || '';
   var NEWLINE = String.fromCharCode(10);
@@ -1687,6 +1705,7 @@
       if (filter === 'system') { if (it.system) { n += 1; } return; }
       if (filter === 'user') { if (!it.system) { n += 1; } return; }
       if (filter === 'none') { if (!it.system && !catOf(it.package)) { n += 1; } return; }
+      if (filter === 'blocked') { if (appBlocked[it.package]) { n += 1; } return; }
       if (filter.indexOf('cat:') === 0) { if (catOf(it.package) === filter.slice(4)) { n += 1; } }
     });
     return n;
@@ -1705,6 +1724,7 @@
       tabs.push({ id: 'cat:' + c.id, name: c.name, n: countIn('cat:' + c.id) });
     });
     tabs.push({ id: 'none', name: '未分类', n: countIn('none'), tip: '已安装但还没分类的应用' });
+    tabs.push({ id: 'blocked', name: '禁止访问', n: countIn('blocked'), tip: '当前被设为「禁止访问」的应用' });
 
     tabs.forEach(function (t) {
       var b = document.createElement('button');
@@ -1725,21 +1745,78 @@
     add.type = 'button';
     add.className = 'apptab add';
     add.textContent = '＋ 新建分类';
-    add.addEventListener('click', addCategory);
+    add.addEventListener('click', beginAddCategory);
     box.appendChild(add);
   }
 
-  function addCategory() {
-    var name = window.prompt('新分类叫什么？（比如：社交、工作、游戏）');
-    if (!name) { return; }
-    name = String(name).trim();
-    if (!name) { return; }
-    var id = 'c' + Date.now().toString(36);
-    appCats.push({ id: id, name: name.slice(0, 20) });
-    appDirty = true;
-    note('app-save-note', '新分类「' + name + '」还没保存，点「保存应用权限」。', 'bad');
-    renderTabs();
-    renderApps();
+  // 新建分类：不用 window.prompt（部分浏览器会拦截或静默返回 null，表现为「点了没反应」），
+  // 改成在标签栏里长出一个输入框；状态存在 addPending/addDraft 里，扛得住每 5 秒的重绘。
+  function beginAddCategory() {
+    var host = $('app-newcat-host');
+    if (!host) { return; }
+    if (host.firstChild) {
+      var exist = host.querySelector('input');
+      if (exist) { exist.focus(); }
+      return;
+    }
+    host.appendChild(buildNewCatEditor());
+    var input = host.querySelector('input');
+    if (input) { input.focus(); }
+  }
+
+  function buildNewCatEditor() {
+    var wrap = document.createElement('span');
+    wrap.className = 'appnew';
+    wrap.id = 'app-newcat';
+
+    var input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'appnew-input';
+    input.placeholder = '新分类名';
+    input.maxLength = 20;
+    input.value = addDraft;
+    input.addEventListener('input', function () { addDraft = input.value; });
+
+    var ok = document.createElement('button');
+    ok.type = 'button';
+    ok.className = 'appnew-ok';
+    ok.textContent = '确定';
+
+    var cancel = document.createElement('button');
+    cancel.type = 'button';
+    cancel.className = 'appnew-cancel';
+    cancel.textContent = '取消';
+
+    function commit() {
+      var name = String(input.value || '').trim();
+      if (!name) { closeEditor(); return; }
+      name = name.slice(0, 20);
+      var id = 'c' + Date.now().toString(36);
+      appCats.push({ id: id, name: name });
+      appDirty = true;
+      appFilter = 'cat:' + id;
+      closeEditor();
+      note('app-save-note', '新分类「' + name + '」已加上，点「保存应用权限」才会写进配置。', 'ok');
+      renderTabs();
+      renderApps();
+    }
+
+    function closeEditor() {
+      var host = $('app-newcat-host');
+      if (host) { host.innerHTML = ''; }
+    }
+
+    ok.addEventListener('click', commit);
+    cancel.addEventListener('click', function () { closeEditor(); renderTabs(); });
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); commit(); }
+      if (e.key === 'Escape') { e.preventDefault(); closeEditor(); renderTabs(); }
+    });
+
+    wrap.appendChild(input);
+    wrap.appendChild(ok);
+    wrap.appendChild(cancel);
+    return wrap;
   }
 
   function lazyIcon(img, pkg) {
@@ -1772,6 +1849,7 @@
     if (appFilter === 'system' && !item.system) { return false; }
     if (appFilter === 'user' && item.system) { return false; }
     if (appFilter === 'none' && (item.system || catOf(pkg))) { return false; }
+    if (appFilter === 'blocked' && !appBlocked[pkg]) { return false; }
     if (appFilter.indexOf('cat:') === 0 && catOf(pkg) !== appFilter.slice(4)) { return false; }
     return true;
   }
@@ -1872,11 +1950,12 @@
   }
 
   function syncAppsFromConfig(cfg) {
+    // 有未保存的改动时，别让 5 秒一次的轮询把本地改动冲掉（新建的分类、勾选状态）。
+    if (appDirty) { renderTabs(); return; }
     appCats = (cfg.app_categories || []).slice();
     appCatMap = {};
     var m = cfg.app_category || {};
     Object.keys(m).forEach(function (k) { appCatMap[k] = m[k]; });
-    if (appDirty) { renderTabs(); return; }
     var blocked = {};
     (cfg.app_blocked || []).forEach(function (pkg) { blocked[String(pkg)] = true; });
     appBlocked = blocked;

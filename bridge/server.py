@@ -49,7 +49,10 @@ LOG_READ_TAIL_BYTES = 256 * 1024
 LOG_MAX_LINES = 500
 
 # 日志里不该给只读会话看的密钥（dp_daemon 启动时会把整份配置打进去）
-_LOG_SECRET_RE = re.compile(r'("(?:token|local_token|admin_token|session_secret)"\s*:\s*")([^"]*)(")')
+_LOG_SECRET_RE = re.compile(
+    r'("(?:token|local_token|admin_token|session_secret|console_password|readonly_password)"'
+    r'\s*:\s*")([^"]*)(")'
+)
 
 # 管理控制台：同一 IP 每分钟最多失败 10 次，超了锁 60 秒（内存计数，重启即清）
 ADMIN_MAX_FAILS = 10
@@ -1041,6 +1044,18 @@ class PhoneBridgeServer:
         return ("\ufeff" + buf.getvalue()).encode("utf-8")
 
 
+def _decode_log(raw: bytes) -> str:
+    """日志编码兜底：正常是 UTF-8（PYTHONUTF8=1 启动），
+    但如果 daemon 是用 `> daemon.log` 重定向启动的，Windows 会按 GBK 写，
+    直接按 UTF-8 读就是一片乱码。所以按 UTF-8 → GB18030 → 替换 的顺序试。"""
+    for enc in ("utf-8", "gb18030"):
+        try:
+            return raw.decode(enc)
+        except UnicodeDecodeError:
+            continue
+    return raw.decode("utf-8", errors="replace")
+
+
 def _tail_lines(path: Path, count: int) -> list[str]:
     """读文件尾部 count 行；不存在/读不了就返回空列表。"""
     try:
@@ -1051,7 +1066,7 @@ def _tail_lines(path: Path, count: int) -> list[str]:
             raw = fh.read()
     except OSError:
         return []
-    lines = raw.decode("utf-8", errors="replace").splitlines()
+    lines = _decode_log(raw).splitlines()
     if size > LOG_READ_TAIL_BYTES and lines:
         lines = lines[1:]  # 第一行可能是半条
     safe = [_LOG_SECRET_RE.sub(r"\1***\3", line) for line in lines]

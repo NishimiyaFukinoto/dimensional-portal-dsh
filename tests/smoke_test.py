@@ -71,6 +71,25 @@ def test_config() -> None:
     )
 
 
+def test_log_decoding() -> None:
+    """控制台「最近日志」要能同时读懂 UTF-8 和 GBK 写的日志。
+
+    背景：Windows 上 `python daemon.py > daemon.log` 默认按 GBK 写，
+    如果按 UTF-8 硬读就是满屏乱码（真实踩过）。
+    """
+    from bridge.server import _decode_log
+
+    zh = "服务已启动，端口 8766"
+    check("UTF-8 日志原文", _decode_log(zh.encode("utf-8")) == zh)
+    check("GBK 日志原文", _decode_log(zh.encode("gb18030")) == zh)
+    check("二进制垃圾不抛异常", isinstance(_decode_log(bytes([0xff, 0xfe, 0x00])), str))
+    line = '配置：{"token": "abc", "console_password": "secret"}'
+    from bridge.server import _LOG_SECRET_RE
+
+    masked = _LOG_SECRET_RE.sub(r"\1***\3", line)
+    check("日志里的密钥被打码", '"token": "***"' in masked and "secret" not in masked)
+
+
 def test_policy() -> None:
     print("\n[2] 安全策略")
     audit = Path(tempfile.mkdtemp(prefix="dp-audit-")) / "audit.jsonl"
@@ -170,6 +189,7 @@ async def test_hub() -> None:
 def main() -> int:
     test_config()
     test_policy()
+    test_log_decoding()
     asyncio.run(test_hub())
     print("\n" + "=" * 46)
     print(f"  通过 {PASS} 项，失败 {FAIL} 项")
