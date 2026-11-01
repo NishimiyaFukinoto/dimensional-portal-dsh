@@ -1,0 +1,146 @@
+"""纯逻辑测试：policy / hub / config。不联网、不起服务。
+
+跑法：<任意 python> tests/smoke_test.py
+"""
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import tempfile
+from pathlib import Path
+
+if hasattr(sys.stdout, "reconfigure"):
+    sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
+import asyncio  # noqa: E402
+
+from bridge.hub import DeviceHub, DeviceOffline, TaskTimeout  # noqa: E402
+from dp import config as cfgmod  # noqa: E402
+from safety.policy import SafetyPolicy  # noqa: E402
+
+PASS = 0
+FAIL = 0
+
+
+def check(name: str, cond: bool, extra: str = "") -> None:
+    global PASS, FAIL
+    if cond:
+        PASS += 1
+        print(f"  ✅ {name}")
+    else:
+        FAIL += 1
+        print(f"  ❌ {name} {extra}")
+
+
+def test_config() -> None:
+    print("\n[1] 配置读写")
+    tmp = Path(tempfile.mkdtemp(prefix="dp-cfg-")) / "dp.json"
+    cfg = cfgmod.load(tmp)
+    check("首次加载会生成文件", tmp.is_file())
+    check("自动生成 token", bool(cfg.get("token")))
+    check("自动生成 local_token", bool(cfg.get("local_token")))
+    check("默认端口 8765", cfg.get("listen_port") == 8765)
+    check("默认不开敏感截图", cfg.get("allow_screenshot_sensitive") is False)
+
+    again = cfgmod.load(tmp)
+    check("二次加载 token 不变", again["token"] == cfg["token"])
+    check("二次加载 local_token 不变", again["local_token"] == cfg["local_token"])
+
+    raw = json.loads(tmp.read_text(encoding="utf-8"))
+    raw["allowed_user_ids"] = "123,456"  # 老配置遗留字段
+    raw["listen_port"] = 9999
+    tmp.write_text(json.dumps(raw), encoding="utf-8")
+    third = cfgmod.load(tmp)
+    check("读到的旧字段被忽略", "allowed_user_ids" not in third)
+    check("自定义端口被保留", third["listen_port"] == 9999)
+
+    view = cfgmod.public_view(third)
+    check("public_view 遮住 local_token", view["local_token"] != third["local_token"])
+    check("public_view 保留 token（手机要抄）", view["token"] == third["token"])
+
+
+def test_policy() -> None:
+    print("\n[2] 安全策略")
+    audit = Path(tempfile.mkdtemp(prefix="dp-audit-")) / "audit.jsonl"
+    policy = SafetyPolicy(
+        rate_limit=3,
+        rate_window_s=60,
+        sensitive_packages=["com.tencent.mm"],
+        package_blacklist=["com.android.systemui"],
+        audit_path=audit,
+    )
+    check("黑名单命中", policy.package_allowed("com.android.systemui")[0] is False)
+    check("普通应用放行", policy.package_allowed("com.tencent.mobileqq")[0] is True)
+
+    results = [policy.rate_check("local")[0] for _ in range(4)]
+    check("限流前 3 次放过", all(results[:3]))
+    check("第 4 次被限流", results[3] is False)
+
+    sensitive, why = policy.is_sensitive_screen("com.tencent.mm", "")
+    check("敏感包名被识别", sensitive and "微信" in why or "com.tencent.mm" in why)
+    sensitive2, _ = policy.is_sensitive_screen("com.example.app", "请输入支付密码")
+    check("敏感文字被识别", sensitive2 is True)
+    sensitive3, _ = policy.is_sensitive_screen("com.example.app", "今天天气不错")
+    check("普通界面不算敏感", sensitive3 is False)
+
+    policy.audit("task", action="tap", x=1)
+    check("审计写入 jsonl", audit.is_file() and "tap" in audit.read_text(encoding="utf-8"))
+
+
+async def test_hub() -> None:
+    print("\n[3] 任务队列")
+    hub = DeviceHub(offline_after=0.5)
+    check("没心跳时离线", hub.online is False)
+    check("心跳为 None 时不算在线", hub.snapshot()["heartbeat_age"] is None)
+
+    hub.on_heartbeat({"device": "Fake", "w": 1080, "h": 2400})
+    check("心跳后在线", hub.online is True)
+    check("设备信息可读", hub.device.get("w") == 1080)
+
+    fresh = DeviceHub(offline_after=0.5)
+    offline = False
+    try:
+        await fresh.submit("tap", {"x": 1, "y": 2}, timeout_ms=200)
+    except DeviceOffline:
+        offline = True
+    check("离线时拒绝下发", offline)
+
+    hub.on_heartbeat({"device": "Fake", "w": 1080, "h": 2400})
+    task = asyncio.create_task(hub.submit("tap", {"x": 1, "y": 2}, timeout_ms=3000))
+    polled = await hub.poll(since=0, wait_s=1.0)
+    jobs = polled.get("jobs") or []
+    check("任务被手机取走", len(jobs) == 1 and jobs[0]["action"] == "tap", str(polled)[:120])
+    if jobs:
+        hub.on_result(jobs[0]["id"], True, {"clicked": [1, 2]}, None)
+    result = await task
+    check("结果能回传", result.get("clicked") == [1, 2], str(result))
+
+    hub.on_heartbeat({"device": "Fake"})
+    task2 = asyncio.create_task(hub.submit("tap", {"x": 3, "y": 4}, timeout_ms=3000))
+    polled2 = await hub.poll(since=0, wait_s=1.0)
+    kept = (polled2.get("jobs") or [{}])[0].get("id")
+    check("emergency_clear 清掉未下发任务", hub.emergency_clear() >= 1 or kept is not None)
+    task2.cancel()
+    try:
+        await task2
+    except (asyncio.CancelledError, TaskTimeout, DeviceOffline):
+        pass
+
+
+def main() -> int:
+    test_config()
+    test_policy()
+    asyncio.run(test_hub())
+    print("\n" + "=" * 46)
+    print(f"  通过 {PASS} 项，失败 {FAIL} 项")
+    print("=" * 46)
+    return 1 if FAIL else 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

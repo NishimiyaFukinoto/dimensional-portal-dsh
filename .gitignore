@@ -1,0 +1,24 @@
+# 运行时数据
+data/
+*.local.js
+
+# 本机配置（含 token，绝对不要提交）
+dp.json
+dp.*.json.local
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 打包 / 编辑器 / 系统
+dist/
+*.zip
+.idea/
+.vscode/
+Thumbs.db
+Desktop.ini
+
+# 本地临时/测试产物
+tmp/
