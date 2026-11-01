@@ -508,7 +508,19 @@ class PhoneService:
 
     def _target_package(self, action: str, params: dict[str, Any] | None) -> str | None:
         if action == ACT_OPEN_APP:
-            return str((params or {}).get("package") or "").strip() or None
+            pkg = str((params or {}).get("package") or "").strip()
+            if pkg:
+                return pkg
+            # 只给了应用名（「计算器」）时，用手机报上来的应用列表反查包名，
+            # 否则「禁止访问」对按名字打开的操作形同虚设。
+            name = str((params or {}).get("name") or "").strip()
+            if name and self._apps:
+                for item in self._apps:
+                    item_pkg = str(item.get("package") or "").strip()
+                    item_name = str(item.get("name") or "").strip()
+                    if name in (item_pkg, item_name):
+                        return item_pkg or None
+            return None
         return str(self.hub.device.get("cur_pkg") or "").strip() or None
 
     @staticmethod
@@ -958,7 +970,7 @@ class PhoneService:
         Args:
             name (str): 应用名或包名
         """
-        gate = self._gate(ACT_OPEN_APP, {})
+        gate = self._gate(ACT_OPEN_APP, {"name": name})
         if gate:
             return gate
         target = str(name or "").strip()

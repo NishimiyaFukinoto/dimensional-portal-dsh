@@ -941,29 +941,30 @@ function actWindows(job) {
 // 给控制台「应用访问」用：把手机上装了什么报给电脑，人再逐个决定放不放行。
 // 优先用 app.getInstalledApps()（带名字）；这台机器上如果不可用，退回 pm list。
 function actApps(job) {
-    var wantSystem = job.params && job.params.include_system === true;
+    // 应用清单要「全」：系统应用（计算器、设置、相机）也必须在内，否则按名字拦截会漏。
+    // getInstalledApps 只给一部分（这台机器上只有 115 个用户应用），所以始终用 pm list packages 兜底合并。
     var out = [];
     var seen = {};
+    var labels = {};
     var i;
 
     function push(pkg, label) {
         pkg = s(pkg).trim();
         if (!pkg || seen[pkg]) return;
-        // 没有界面的包（com.android.xxx 的深层组件）意义不大，但系统应用本身保留
         seen[pkg] = 1;
         out.push({ package: pkg, name: s(label).trim() || pkg });
     }
 
+    // 1) 快速拿到「包名 → 中文名」的映射（这一步可能不全，但名字质量最好）
     try {
         if (typeof app.getInstalledApps === "function") {
             var list = app.getInstalledApps() || [];
             for (i = 0; i < list.length; i++) {
                 var it = list[i] || {};
-                var pkg = s(it.packageName || it.package || it.pkg);
-                var label = s(it.label || it.name || it.appName);
-                if (!label) {
-                    try { label = s(app.getAppName(pkg)); } catch (eL) { label = ""; }
-                }
+                var pkg = s(it.packageName || it.package || it.pkg).trim();
+                var label = s(it.label || it.name || it.appName).trim();
+                if (!pkg) continue;
+                if (label) labels[pkg] = label;
                 push(pkg, label);
             }
         }
@@ -971,25 +972,28 @@ function actApps(job) {
         log("getInstalledApps 不可用：" + e);
     }
 
-    if (out.length === 0) {
-        try {
-            var flag = wantSystem ? "" : " -3";
-            var res = shell("pm list packages" + flag, true);
-            var text = s(res);
-            var lines = text.split(String.fromCharCode(10));
-            for (i = 0; i < lines.length; i++) {
-                var line = s(lines[i]).trim();
-                if (!line) continue;
-                var idx = line.indexOf("package:");
-                if (idx < 0) continue;
-                var pkg2 = line.substring(idx + 8).trim();
-                var label2 = "";
+    // 2) 无条件再扫一遍全部包（含系统应用），补上第 1 步漏掉的
+    try {
+        // 第二个参数 false = 用 shell 用户执行；true 会走 su，没 root 直接抛 IOException
+        var res = shell("pm list packages", false);
+        var text = s(res);
+        var lines = text.split(String.fromCharCode(10));
+        for (i = 0; i < lines.length; i++) {
+            var line = s(lines[i]).trim();
+            if (!line) continue;
+            var idx = line.indexOf("package:");
+            if (idx < 0) continue;
+            var pkg2 = line.substring(idx + 8).trim();
+            if (seen[pkg2]) continue;
+            var label2 = labels[pkg2] || "";
+            if (!label2) {
                 try { label2 = s(app.getAppName(pkg2)); } catch (e2) { label2 = ""; }
-                push(pkg2, label2);
             }
-        } catch (e3) {
-            throw new Error("读不到应用列表：" + e3);
+            push(pkg2, label2);
         }
+    } catch (e3) {
+        if (out.length === 0) throw new Error("读不到应用列表：" + e3);
+        log("pm list packages 失败，只用已读到的 " + out.length + " 个：" + e3);
     }
 
     out.sort(function (a, b) {
