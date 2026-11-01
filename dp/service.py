@@ -23,6 +23,7 @@ from typing import Any
 
 from bridge.hub import DeviceHub, DeviceOffline, TaskRejected, TaskTimeout
 from bridge.protocol import (
+    ACT_APPS,
     ACT_FIND_TEXT,
     ACT_KEY,
     ACT_LONG_PRESS,
@@ -147,13 +148,21 @@ class ConsoleAdapter:
                 "allow_sensitive_write": bool(plugin.allow_sensitive_write),
                 "sensitive_packages": list(plugin.policy.sensitive_packages),
                 "package_blacklist": list(plugin.policy.package_blacklist),
+                "app_mode": plugin.policy.app_mode,
+                "app_blocked": sorted(plugin.policy.app_blocked),
+                "app_allowed": sorted(plugin.policy.app_allowed),
             },
+            "apps": list(getattr(plugin, "_apps", [])),
             "audit": self.audit_page(limit=20)["items"],
             "editable": {
                 "ints": {key: [lo, hi] for key, (lo, hi, _label) in _EDITABLE_INTS.items()},
                 "bools": sorted(_EDITABLE_BOOLS),
             },
         }
+
+    async def refresh_apps(self) -> list[dict[str, Any]]:
+        """控制台点「刷新应用列表」时走这里：让手机上报一次。"""
+        return await self.plugin.refresh_apps()
 
     def audit_page(self, limit: Any = AUDIT_PAGE_DEFAULT, offset: Any = 0) -> dict[str, Any]:
         try:
@@ -237,6 +246,23 @@ class ConsoleAdapter:
             plugin.config[key] = value
             change[key] = value
 
+        # 应用访问（控制台「应用访问」卡）：blocklist / allowlist + 两个包名列表
+        if "app_mode" in payload:
+            mode = str(payload.get("app_mode") or "").strip().lower()
+            if mode not in ("blocklist", "allowlist"):
+                raise ValueError("应用访问模式只能是 blocklist 或 allowlist")
+            plugin.config["app_mode"] = mode
+            change["app_mode"] = mode
+        for key, label in (("app_blocked", "禁止访问列表"), ("app_allowed", "允许访问列表")):
+            if key not in payload:
+                continue
+            raw = payload.get(key)
+            if not isinstance(raw, list) or any(not isinstance(x, str) for x in raw):
+                raise ValueError(f"{label}必须是包名字符串数组")
+            cleaned = sorted({x.strip() for x in raw if x.strip()})
+            plugin.config[key] = cleaned
+            change[key] = cleaned
+
         change = {key: value for key, value in change.items() if before.get(key) != value}
         if not change:
             return self.snapshot()["config"]
@@ -246,7 +272,7 @@ class ConsoleAdapter:
             saver()
 
         # 让改动立刻生效（不重载插件、不断开手机）
-        if "rate_limit_per_minute" in change:
+        if change.keys() & {"rate_limit_per_minute", "app_mode", "app_blocked", "app_allowed"}:
             plugin._rebuild_policy()
             server = getattr(plugin, "server", None)
             if server is not None:
@@ -271,6 +297,21 @@ class ConsoleAdapter:
         return int(self.plugin.hub.emergency_clear())
 
 
+# 「从敏感界面逃出去」的动作：不碰应用内容，只做导航。
+# 否则一旦进了设置/微信，连 home 都被拦，手机就再也动不了了（真机测出来的坑）。
+_ESCAPE_ACTIONS = ("open_app",)
+_ESCAPE_KEYS = ("back", "home", "recents")
+
+
+def _is_escape(action: str, params: dict[str, Any] | None) -> bool:
+    if action in _ESCAPE_ACTIONS:
+        return True
+    if action == "key":
+        name = str((params or {}).get("name") or "back").strip().lower()
+        return name in _ESCAPE_KEYS
+    return False
+
+
 class PhoneService:
     """次元门的执行层：一台手机、一个队列、一套安全策略。
 
@@ -293,6 +334,9 @@ class PhoneService:
 
         self.audit_path = _audit_path()
         self.policy = self._make_policy()
+        # 手机上报的应用列表（控制台「应用访问」用），只在内存里放，重启重读
+        self._apps: list[dict[str, Any]] = []
+        self._apps_at: float = 0.0
         self.hub = DeviceHub(offline_after=offline_after)
         self.console = ConsoleAdapter(self)
         self.server = PhoneBridgeServer(
@@ -382,6 +426,9 @@ class PhoneService:
             rate_window_s=60.0,
             sensitive_packages=self._cfg("sensitive_packages", None) or None,
             package_blacklist=self._cfg("package_blacklist", None) or None,
+            app_mode=str(self._cfg("app_mode", "blocklist") or "blocklist"),
+            app_blocked=self._cfg("app_blocked", None) or None,
+            app_allowed=self._cfg("app_allowed", None) or None,
             audit_path=self.audit_path,
         )
 
@@ -419,7 +466,7 @@ class PhoneService:
             host = _local_ip()
         return f"http://{host}:{self.server.port}/console?k={self.server.admin_token}"
 
-    def _gate(self, action: str) -> str | None:
+    def _gate(self, action: str, params: dict[str, Any] | None = None) -> str | None:
         """限流 + 在线 + 敏感界面写保护。返回非 None 就是拒绝理由。"""
         ok, msg = self.policy.rate_check(self._rate_key())
         if not ok:
@@ -432,7 +479,7 @@ class PhoneService:
             )
         # 敏感界面默认不让动手：不截图保护的是画面，拦不住往密码框里打字/点「确认支付」。
         # 只拦 WRITE_ACTIONS；phone_see / phone_ui 这类只读动作照常放行。
-        if action in WRITE_ACTIONS and not self.allow_sensitive_write:
+        if action in WRITE_ACTIONS and not self.allow_sensitive_write and not _is_escape(action, params):
             cur = str(self.hub.device.get("cur_pkg") or "")
             sensitive, why = self.policy.is_sensitive_screen(cur)
             if sensitive:
@@ -447,7 +494,22 @@ class PhoneService:
                     "敏感界面默认只能看（phone_see / phone_ui）。确实需要操作时，"
                     "在控制台「安全策略」里打开「敏感界面允许点击输入」再试。"
                 )
+        # 应用访问：人可以在控制台里把某个应用设成「禁止访问」，
+        # 或切成「只允许白名单」。open_app 看目标包名，其它动作看当前前台包名。
+        target = self._target_package(action, params)
+        allowed, why = self.policy.app_access(target)
+        if not allowed:
+            self.policy.audit("deny_app", action=action, pkg=target or "", reason=why)
+            return (
+                f"🚫 {why}，已拦截（{action}）。\n"
+                "要改的话去控制台 →「应用访问」里放开这个应用。"
+            )
         return None
+
+    def _target_package(self, action: str, params: dict[str, Any] | None) -> str | None:
+        if action == ACT_OPEN_APP:
+            return str((params or {}).get("package") or "").strip() or None
+        return str(self.hub.device.get("cur_pkg") or "").strip() or None
 
     @staticmethod
     def _rate_key() -> str:
@@ -482,7 +544,7 @@ class PhoneService:
         timeout_ms: int | None = None,
     ) -> dict[str, Any]:
         """daemon 的本机接口用它：过一遍 _gate，再下发。异常转成人话文本。"""
-        reason = self._gate(action)
+        reason = self._gate(action, params)
         if reason:
             return {"ok": False, "text": reason}
         try:
@@ -876,7 +938,7 @@ class PhoneService:
         Args:
             key (str): 按键名，默认 back
         """
-        gate = self._gate(ACT_KEY)
+        gate = self._gate(ACT_KEY, {"name": key})
         if gate:
             return gate
         name = str(key or "back").strip().lower()
@@ -896,7 +958,7 @@ class PhoneService:
         Args:
             name (str): 应用名或包名
         """
-        gate = self._gate(ACT_OPEN_APP)
+        gate = self._gate(ACT_OPEN_APP, {})
         if gate:
             return gate
         target = str(name or "").strip()
@@ -978,6 +1040,43 @@ class PhoneService:
         self.policy.audit("emergency_stop", dropped=dropped)
         logger.warning("[dimensional-portal] 急停已执行，清空 %s 个任务", dropped)
         return dropped
+
+    async def refresh_apps(self, timeout_ms: int = 25000) -> list[dict[str, Any]]:
+        """让手机把装了什么报上来，缓存在内存里给控制台用。"""
+        data = await self._submit(ACT_APPS, {}, timeout_ms)
+        apps = data.get("apps") if isinstance(data, dict) else None
+        self._apps = list(apps or [])
+        self._apps_at = time.time()
+        return self._apps
+
+    async def phone_apps(self, refresh: bool = False) -> str:
+        """列出手机上的应用（名字 + 包名），并标出哪些被禁止访问。
+
+        用来查包名（phone_open_app 需要），或确认「应用访问」里挡掉了什么。
+        Args:
+            refresh (bool): 重新从手机读一次（默认用上次读到的缓存）
+        """
+        refused = self._gate(ACT_APPS)
+        if refused:
+            return refused
+        if refresh or not self._apps:
+            try:
+                await self.refresh_apps()
+            except _ToolError as exc:
+                return str(exc)
+        if not self._apps:
+            return "没读到应用列表（手机上可能不允许读取应用信息）"
+        lines = []
+        for item in self._apps:
+            pkg = str(item.get("package") or "")
+            name = str(item.get("name") or pkg)
+            allowed, _why = self.policy.app_access(pkg)
+            flag = "" if allowed else "  ⛔"
+            lines.append(f"{name}{flag}\n    {pkg}")
+        head = f"📱 手机上共 {len(self._apps)} 个应用"
+        if self.policy.app_mode == "allowlist":
+            head += "（当前是「只允许白名单」模式）"
+        return head + "\n" + "\n".join(lines)
 
     async def phone_stop(self) -> str:
         """急停：清空所有还没发出去的任务。用户说「停下」「别动了」时立刻调用。"""

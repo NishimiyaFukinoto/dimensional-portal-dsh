@@ -128,6 +128,11 @@ async def fake_phone(session: aiohttp.ClientSession, stop: asyncio.Event, log: l
                     out = {"found": True, "tapped": True, "total": 1,
                            "matched": params.get("text"), "cx": 900, "cy": 2200,
                            "pkg": STATE["cur_pkg"]}
+                elif action == "apps":
+                    out = {"apps": [{"package": "com.example.notes", "name": "我的笔记"},
+                                    {"package": "com.tencent.mm", "name": "微信"},
+                                    {"package": "com.android.bbkcalculator", "name": "计算器"}],
+                           "total": 3, "w": 1080, "h": 2400}
                 elif action == "open_app":
                     out = {"launched": True, "pkg": "com.tencent.mm",
                            "target": params.get("package") or params.get("name"),
@@ -256,7 +261,51 @@ async def main() -> int:
                 stopped = await resp.json()
             check("/local/stop 可用", stopped.get("ok") is True, str(stopped))
 
-            print("\n[7] phone_stop")
+            print("\n8")
+            async with session.get(f"http://{HOST}:{PORT}/admin/apps", headers={}) as resp:
+                await resp.read()
+            check("/admin/apps 没 key 401", resp.status == 401, f"status={resp.status}")
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/apps/refresh?k=live-admin") as resp:
+                payload = await resp.json()
+            check("刷新应用列表拿到 3 个", payload.get("ok") is True
+                  and len(payload.get("apps") or []) == 3, str(payload)[:200])
+
+            async with session.get(f"http://{HOST}:{PORT}/admin/apps?k=live-admin") as resp:
+                cached = await resp.json()
+            check("/admin/apps 返回缓存", cached.get("count") == 3, str(cached)[:160])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/config?k=live-admin",
+                json={"app_blocked": ["com.android.bbkcalculator"]},
+            ) as resp:
+                applied = await resp.json()
+            check("保存 app_blocked 生效", applied.get("ok") is True
+                  and "com.android.bbkcalculator" in (applied.get("applied") or {}).get("app_blocked", []),
+                  str(applied)[:200])
+            blocked_text = await svc.submit_action("open_app", {"package": "com.android.bbkcalculator"})
+            check("被禁用的应用打不开", blocked_text.get("ok") is False
+                  and "禁止访问" in str(blocked_text.get("text")), str(blocked_text)[:200])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/config?k=live-admin",
+                json={"app_mode": "allowlist", "app_allowed": ["com.tencent.mm"],
+                      "app_blocked": []},
+            ) as resp:
+                await resp.read()
+            allowed_text = await svc.submit_action("open_app", {"package": "com.tencent.mm"})
+            check("白名单里的应用可打开", allowed_text.get("ok") is True, str(allowed_text)[:200])
+            denied_text = await svc.submit_action("open_app", {"package": "com.example.notes"})
+            check("白名单外的应用被拦", denied_text.get("ok") is False, str(denied_text)[:200])
+
+            async with session.post(
+                f"http://{HOST}:{PORT}/admin/config?k=live-admin",
+                json={"app_mode": "blocklist", "app_blocked": [], "app_allowed": []},
+            ) as resp:
+                await resp.read()
+
+            print("\n7 phone_stop")
             text = await svc.phone_stop()
             check("phone_stop 返回急停文案", "急停" in text, text)
         finally:

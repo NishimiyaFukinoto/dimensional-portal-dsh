@@ -26,6 +26,7 @@ ACT_OPEN_APP = "open_app"
 ACT_FIND_TEXT = "find_text"
 ACT_WAIT = "wait"
 ACT_STATUS = "status"
+ACT_APPS = "apps"  # 读手机上的应用列表（控制台「应用访问」用）
 
 # M3 / M4 预留（手机端先返回 not_implemented）
 ACT_CAMERA_PHOTO = "camera_photo"
@@ -46,6 +47,7 @@ M1_ACTIONS = frozenset(
         ACT_FIND_TEXT,
         ACT_WAIT,
         ACT_STATUS,
+        ACT_APPS,
     }
 )
 

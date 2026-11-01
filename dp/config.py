@@ -45,6 +45,10 @@ DEFAULTS: dict[str, Any] = {
     "max_screenshot_kb": 1500,
     "allow_screenshot_sensitive": False,
     "allow_sensitive_write": False,
+    # 应用访问：默认谁都放行，人可以在控制台里逐个禁掉，或切成只允许白名单
+    "app_mode": "blocklist",
+    "app_blocked": [],
+    "app_allowed": [],
     "sensitive_packages": [],
     "package_blacklist": [],
 }

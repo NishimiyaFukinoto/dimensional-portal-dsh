@@ -455,6 +455,35 @@
     }
   }
 
+  /* ---------- 应用访问 ---------- */
+  .appsearch {
+    flex: 1 1 auto; min-width: 0; padding: 10px 14px; border-radius: 999px;
+    border: 1px solid rgba(123, 94, 167, .18); background: rgba(255, 255, 255, .72);
+    font-size: 14px; color: var(--text); outline: none;
+  }
+  .appsearch:focus { border-color: rgba(232, 86, 143, .55); box-shadow: 0 0 0 3px rgba(232, 86, 143, .12); }
+  .applist {
+    display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px;
+    max-height: clamp(240px, 46vh, 520px); overflow-y: auto; scrollbar-width: thin;
+  }
+  .approw {
+    display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 12px;
+    background: rgba(255, 255, 255, .55); border: 1px solid rgba(123, 94, 167, .10);
+    cursor: pointer; transition: background .2s ease, opacity .2s ease;
+  }
+  .approw:hover { background: rgba(255, 255, 255, .8); }
+  .approw.off { opacity: .5; }
+  .approw input[type="checkbox"] { width: 17px; height: 17px; accent-color: var(--rose); flex: 0 0 auto; }
+  .approw .appname { font-weight: 600; flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .approw .apppkg {
+    font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 11.5px; color: var(--muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 46%;
+  }
+  .appmode {
+    padding: 10px 12px; border-radius: 999px; border: 1px solid rgba(123, 94, 167, .18);
+    background: rgba(255, 255, 255, .72); font-size: 13.5px; color: var(--text); cursor: pointer;
+  }
+
   /* ---------- V2：安全策略 ---------- */
   .toggle-row { margin: 16px 0 4px; }
   .switch { display: flex; align-items: center; gap: 12px; cursor: pointer; user-select: none; }
@@ -603,6 +632,25 @@
       <button class="btn ghost" id="reset-policy" type="button">还原本页</button>
     </div>
     <div class="note" id="policy-note">改完立刻生效：不用重载插件，也不会断开手机。</div>
+  </section>
+
+  <section class="card">
+    <h2>应用访问</h2>
+    <div class="note tight" id="app-note">决定「AI 能碰哪些应用」。取消勾选＝禁止访问，点了会被直接拦下。</div>
+    <div class="row" style="margin-top:12px">
+      <input class="appsearch" id="app-search" type="search" placeholder="搜应用名或包名" autocomplete="off">
+      <button class="btn ghost" id="app-refresh" type="button">刷新列表</button>
+    </div>
+    <div class="applist" id="app-list"><div class="audit-empty">读取中…</div></div>
+    <div class="row" style="margin-top:12px">
+      <select class="appmode" id="app-mode">
+        <option value="blocklist">默认放行，只禁个别的</option>
+        <option value="allowlist">只放行勾选的这些</option>
+      </select>
+      <button class="btn primary" id="app-save" type="button">保存应用权限</button>
+      <span class="note" id="app-count" style="margin:0;flex:1 1 auto"></span>
+    </div>
+    <div class="note" id="app-save-note">改完立刻生效：不用重载，也不会断开手机。</div>
   </section>
 
   <section class="card">
@@ -904,6 +952,108 @@
       });
   }
 
+  // ---------------------------------------------------------------- 应用访问
+  var appItems = [];
+  var appBlocked = {};
+  var appDirty = false;
+
+  function renderApps() {
+    var list = $('app-list');
+    if (!list) { return; }
+    var q = String($('app-search').value || '').trim().toLowerCase();
+    list.innerHTML = '';
+    if (!appItems.length) {
+      list.innerHTML = '<div class="audit-empty">还没读到应用列表，点右边的「刷新列表」。</div>';
+      setText('app-count', '');
+      return;
+    }
+    var shown = 0;
+    appItems.forEach(function (item) {
+      var pkg = String(item.package || '');
+      var name = String(item.name || pkg);
+      if (q && name.toLowerCase().indexOf(q) < 0 && pkg.toLowerCase().indexOf(q) < 0) { return; }
+      shown += 1;
+      var row = document.createElement('label');
+      var checked = !appBlocked[pkg];
+      row.className = 'approw' + (checked ? '' : ' off');
+      var cb = document.createElement('input');
+      cb.type = 'checkbox';
+      cb.checked = checked;
+      cb.addEventListener('change', function () {
+        if (cb.checked) { delete appBlocked[pkg]; } else { appBlocked[pkg] = true; }
+        row.className = 'approw' + (cb.checked ? '' : ' off');
+        appDirty = true;
+        note('app-save-note', '有改动没保存，点「保存应用权限」。', 'bad');
+      });
+      var nm = document.createElement('span');
+      nm.className = 'appname';
+      nm.textContent = name;
+      var pk = document.createElement('span');
+      pk.className = 'apppkg';
+      pk.textContent = pkg;
+      row.appendChild(cb);
+      row.appendChild(nm);
+      row.appendChild(pk);
+      list.appendChild(row);
+    });
+    if (!shown) {
+      list.innerHTML = '<div class="audit-empty">没有匹配「' + q + '」的应用。</div>';
+    }
+    setText('app-count', '共 ' + appItems.length + ' 个应用');
+  }
+
+  function syncAppsFromConfig(cfg) {
+    if (appDirty) { return; }
+    var blocked = {};
+    (cfg.app_blocked || []).forEach(function (pkg) { blocked[String(pkg)] = true; });
+    appBlocked = blocked;
+    var mode = String(cfg.app_mode || 'blocklist');
+    var sel = $('app-mode');
+    if (sel && sel.value !== mode) { sel.value = mode; }
+    renderApps();
+  }
+
+  function loadApps(force) {
+    var btn = $('app-refresh');
+    if (btn) { btn.disabled = true; }
+    var body = force ? { method: 'POST' } : {};
+    api(force ? '/admin/apps/refresh' : '/admin/apps', body).then(function (data) {
+      appItems = (data.apps || []).slice();
+      appDirty = false;
+      renderApps();
+      note('app-note', appItems.length
+        ? ('从手机读到 ' + appItems.length + ' 个应用。取消勾选＝禁止访问。')
+        : '还没读到应用列表，点「刷新列表」从手机现读一次。');
+    }).catch(function (err) {
+      note('app-note', '读取失败：' + (err.message || '未知错误'), 'bad');
+    }).then(function () {
+      if (btn) { btn.disabled = false; }
+    });
+  }
+
+  function saveApps() {
+    var blocked = [];
+    var allowed = [];
+    appItems.forEach(function (item) {
+      var pkg = String(item.package || '');
+      if (!pkg) { return; }
+      if (appBlocked[pkg]) { blocked.push(pkg); } else { allowed.push(pkg); }
+    });
+    var mode = $('app-mode').value;
+    api('/admin/config', {
+      method: 'POST',
+      body: JSON.stringify({ app_mode: mode, app_blocked: blocked, app_allowed: allowed })
+    }).then(function (data) {
+      appDirty = false;
+      note('app-save-note', mode === 'allowlist'
+        ? ('已保存：之后只放行勾选的 ' + allowed.length + ' 个应用。')
+        : ('已保存：' + blocked.length + ' 个应用被禁止访问。'), 'ok');
+      if (data && data.applied) { renderSecurity(data.applied); }
+    }).catch(function (err) {
+      note('app-save-note', '保存失败：' + (err.message || '未知错误'), 'bad');
+    });
+  }
+
   function loadState() {
     if (timerStopped) { return; }
     api('/admin/state').then(function (state) {
@@ -911,7 +1061,8 @@
       renderDevice(state);
       var cfg = state.config || {};
       renderSecurity(cfg);
-      if (!auditLoaded) { auditLoaded = true; loadAudit(false); }
+      syncAppsFromConfig(cfg);
+      if (!auditLoaded) { auditLoaded = true; loadAudit(false); loadApps(false); }
     }).catch(function (err) {
       if (err.status === 401 || err.status === 403) {
         stopPolling('密钥无效：请用日志里的 /console?k=… 地址重新打开。');
@@ -951,6 +1102,10 @@
     $(id).addEventListener('change', markDirty);
   });
   $('audit-more').addEventListener('click', function () { loadAudit(true); });
+  if ($('app-refresh')) { $('app-refresh').addEventListener('click', function () { loadApps(true); }); }
+  if ($('app-save')) { $('app-save').addEventListener('click', saveApps); }
+  if ($('app-search')) { $('app-search').addEventListener('input', renderApps); }
+  if ($('app-mode')) { $('app-mode').addEventListener('change', function () { appDirty = true; }); }
   document.addEventListener('visibilitychange', function () {
     if (!document.hidden) { loadState(); }
   });

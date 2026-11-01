@@ -936,6 +936,68 @@ function actWindows(job) {
 
 // ============================================================ 任务执行
 
+// ------------------------------------------------------------ 应用列表
+
+// 给控制台「应用访问」用：把手机上装了什么报给电脑，人再逐个决定放不放行。
+// 优先用 app.getInstalledApps()（带名字）；这台机器上如果不可用，退回 pm list。
+function actApps(job) {
+    var wantSystem = job.params && job.params.include_system === true;
+    var out = [];
+    var seen = {};
+    var i;
+
+    function push(pkg, label) {
+        pkg = s(pkg).trim();
+        if (!pkg || seen[pkg]) return;
+        // 没有界面的包（com.android.xxx 的深层组件）意义不大，但系统应用本身保留
+        seen[pkg] = 1;
+        out.push({ package: pkg, name: s(label).trim() || pkg });
+    }
+
+    try {
+        if (typeof app.getInstalledApps === "function") {
+            var list = app.getInstalledApps() || [];
+            for (i = 0; i < list.length; i++) {
+                var it = list[i] || {};
+                var pkg = s(it.packageName || it.package || it.pkg);
+                var label = s(it.label || it.name || it.appName);
+                if (!label) {
+                    try { label = s(app.getAppName(pkg)); } catch (eL) { label = ""; }
+                }
+                push(pkg, label);
+            }
+        }
+    } catch (e) {
+        log("getInstalledApps 不可用：" + e);
+    }
+
+    if (out.length === 0) {
+        try {
+            var flag = wantSystem ? "" : " -3";
+            var res = shell("pm list packages" + flag, true);
+            var text = s(res);
+            var lines = text.split(String.fromCharCode(10));
+            for (i = 0; i < lines.length; i++) {
+                var line = s(lines[i]).trim();
+                if (!line) continue;
+                var idx = line.indexOf("package:");
+                if (idx < 0) continue;
+                var pkg2 = line.substring(idx + 8).trim();
+                var label2 = "";
+                try { label2 = s(app.getAppName(pkg2)); } catch (e2) { label2 = ""; }
+                push(pkg2, label2);
+            }
+        } catch (e3) {
+            throw new Error("读不到应用列表：" + e3);
+        }
+    }
+
+    out.sort(function (a, b) {
+        return s(a.name).localeCompare(s(b.name), "zh");
+    });
+    return { apps: out, total: out.length, w: device.width, h: device.height };
+}
+
 function executeJob(job) {
     var action = s(job.action);
     log("执行 " + job.id + " " + action);
@@ -953,6 +1015,7 @@ function executeJob(job) {
         else if (action === "wait") data = actWait(job);
         else if (action === "status") data = actStatus(job);
         else if (action === "windows") data = actWindows(job);
+        else if (action === "apps") data = actApps(job);
         else if (action === "camera_photo" || action === "camera_video"
             || action === "download_apk" || action === "install_apk") {
             throw new Error("动作 " + action + " 还没实现（M3/M4 里程碑）");

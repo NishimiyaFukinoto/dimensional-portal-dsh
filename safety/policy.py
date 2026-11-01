@@ -61,6 +61,9 @@ class SafetyPolicy:
         rate_window_s: float = 60.0,
         sensitive_packages: Any = None,
         package_blacklist: Any = None,
+        app_mode: str = "blocklist",
+        app_blocked: Any = None,
+        app_allowed: Any = None,
         audit_path: str | Path | None = None,
     ) -> None:
         self.rate_limit = max(1, int(rate_limit))
@@ -71,6 +74,10 @@ class SafetyPolicy:
         self.package_blacklist = set(_as_list(package_blacklist)) or set(
             DEFAULT_PACKAGE_BLACKLIST
         )
+        # 「应用访问」：blocklist = 默认都行、只禁个别的；allowlist = 只放行白名单。
+        self.app_mode = "allowlist" if str(app_mode or "").strip().lower() == "allowlist" else "blocklist"
+        self.app_blocked = set(_as_list(app_blocked))
+        self.app_allowed = set(_as_list(app_allowed))
 
         self._hits: dict[str, deque[float]] = defaultdict(deque)
         self.audit_path = Path(audit_path) if audit_path else None
@@ -102,6 +109,19 @@ class SafetyPolicy:
             return True, "ok"
         if pkg in self.package_blacklist:
             return False, f"包名 {pkg} 在禁止列表里"
+        return True, "ok"
+
+    def app_access(self, package: str | None) -> tuple[bool, str]:
+        """人定的「这个应用能不能被碰」。空包名一律放行（桌面、系统界面）。"""
+        pkg = (package or "").strip()
+        if not pkg:
+            return True, "ok"
+        if self.app_mode == "allowlist":
+            if pkg in self.app_allowed:
+                return True, "ok"
+            return False, f"现在是「只允许白名单」模式，{pkg} 不在允许名单里"
+        if pkg in self.app_blocked:
+            return False, f"{pkg} 被设为「禁止访问」"
         return True, "ok"
 
     def is_sensitive_package(self, package: str | None) -> bool:

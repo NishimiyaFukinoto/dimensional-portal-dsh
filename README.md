@@ -29,7 +29,8 @@ DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> too
 | 急停 | `phone_stop` | 清空还没下发的任务 |
 | 看状态 | `phone_status` | 在线、电量、分辨率、权限 |
 
-控制台（浏览器）：`http://<本机IP>:8766/console?k=<admin_token>`，能看设备状态、
+控制台（浏览器）：`http://<本机IP>:8766/console?k=<admin_token>`，能看设备状态、调安全策略、翻审计日志、
+逐个决定「哪些应用可以被碰」（应用访问），
 调安全策略、翻操作审计、急停。
 
 ---
@@ -90,6 +91,9 @@ dsh-panel mcp add --name dp-phone --stdio \
 > 默认用 **8766** 而不是 8765：AstrBot 版插件默认占 8765，两个版本可以同时跑（手机连哪个由脚本里的地址决定）。
 | `local_token` | 自动生成 | 本机 MCP 进程调 daemon 用，只认回环地址 |
 | `admin_token` | 自动生成 | 控制台密钥；填 `off` 彻底关闭控制台 |
+| `app_mode` | `blocklist` | 应用访问模式：`blocklist` 默认放行只禁个别的，`allowlist` 只放行名单里 |
+| `app_blocked` | `[]` | 禁止访问的包名数组（blocklist 模式生效） |
+| `app_allowed` | `[]` | 允许访问的包名数组（allowlist 模式生效） |
 | `debug_token` | 空 | 非空才开 `POST /debug/submit`，平时别开 |
 | `rate_limit_per_minute` | 20 | 每分钟最多下发多少动作 |
 | `task_timeout_ms` | 20000 | 单个动作默认超时 |

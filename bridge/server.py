@@ -229,6 +229,8 @@ class PhoneBridgeServer:
         self.app.router.add_get("/admin/state", self.handle_admin_state)
         self.app.router.add_post("/admin/config", self.handle_admin_config)
         self.app.router.add_get("/admin/audit", self.handle_admin_audit)
+        self.app.router.add_get("/admin/apps", self.handle_admin_apps)
+        self.app.router.add_post("/admin/apps/refresh", self.handle_admin_apps_refresh)
         self.app.router.add_post("/admin/stop", self.handle_admin_stop)
         self._admin_routes_added = True
         log.info("[dimensional-portal] 管理控制台已启用（/console）")
@@ -580,6 +582,29 @@ class PhoneBridgeServer:
         offset = max(0, offset)
         page = self.console.audit_page(limit=limit, offset=offset)
         return web.json_response({"ok": True, **page})
+
+    async def handle_admin_apps(self, request: web.Request) -> web.StreamResponse:
+        """控制台「应用访问」卡：返回上次从手机读到的应用列表（可能为空）。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        snapshot = self.console.snapshot()
+        apps = list(snapshot.get("apps") or [])
+        return web.json_response({"ok": True, "apps": apps, "count": len(apps)})
+
+    async def handle_admin_apps_refresh(self, request: web.Request) -> web.StreamResponse:
+        """去手机上现读一次应用列表（慢，几秒），读完返回。"""
+        guard = self._admin_guard(request)
+        if guard is not None:
+            return guard
+        refresher = getattr(self.console, "refresh_apps", None)
+        if not callable(refresher):
+            return web.json_response({"ok": False, "error": "这个版本不支持刷新应用列表"})
+        try:
+            apps = await refresher()
+        except Exception as exc:  # noqa: BLE001 - 手机上任何异常都转成人话
+            return web.json_response({"ok": False, "error": str(exc)}, status=200)
+        return web.json_response({"ok": True, "apps": list(apps or []), "count": len(apps or [])})
 
     async def handle_admin_stop(self, request: web.Request) -> web.StreamResponse:
         guard = self._admin_guard(request)

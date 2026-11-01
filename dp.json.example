@@ -8,5 +8,8 @@
   "screenshot_quality": 55,
   "max_screenshot_kb": 1500,
   "allow_screenshot_sensitive": false,
-  "allow_sensitive_write": false
+  "allow_sensitive_write": false,
+  "app_mode": "blocklist",
+  "app_blocked": [],
+  "app_allowed": []
 }
