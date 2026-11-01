@@ -37,6 +37,12 @@ DEFAULTS: dict[str, Any] = {
     "listen_port": 8766,
     "local_token": "",
     "admin_token": "",
+    # 控制台登录口令（明文存本地 dp.json；空 = 只认 admin_token 链接）
+    "console_password": "",
+    # 只读口令（只能看，不能改；空 = 不开放只读）
+    "readonly_password": "",
+    # 签 session cookie 的密钥，自动生成
+    "session_secret": "",
     "debug_token": "",
     "rate_limit_per_minute": 20,
     "task_timeout_ms": 20000,
@@ -64,7 +70,7 @@ DEFAULTS: dict[str, Any] = {
 }
 
 # 这些字段由程序生成，不写进示例文件
-GENERATED = ("token", "local_token", "admin_token")
+GENERATED = ("token", "local_token", "admin_token", "session_secret")
 
 
 class ConfigStore(dict[str, Any]):
@@ -115,6 +121,14 @@ def load(path: str | Path | None = None, create: bool = True) -> dict[str, Any]:
         cfg["token"] = secrets.token_urlsafe(18)
         changed = True
 
+    if not str(cfg.get("session_secret") or "").strip():
+        # 签控制台 session cookie 用；换了它，所有已登录的浏览器都会掉线
+        cfg["session_secret"] = secrets.token_urlsafe(32)
+        changed = True
+    if not str(cfg.get("admin_token") or "").strip():
+        cfg["admin_token"] = secrets.token_urlsafe(24)
+        changed = True
+
     if create and (changed or not target.exists()):
         save(cfg, target)
     return ConfigStore(cfg, target)
@@ -135,7 +149,10 @@ def public_view(cfg: dict[str, Any]) -> dict[str, Any]:
     out = {}
     for key, value in cfg.items():
         text = str(value or "")
-        if key in GENERATED and text:
+        if key in GENERATED or key in ("console_password", "readonly_password"):
+            if not text:
+                out[key] = ""
+                continue
             out[key] = text if key == "token" else f"{text[:6]}…"
         else:
             out[key] = value

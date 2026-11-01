@@ -13,7 +13,6 @@ DSH 通过 stdio 起这个进程，它本身不碰手机，只把工具调用转
 
 from __future__ import annotations
 
-import asyncio
 import json
 import os
 import sys

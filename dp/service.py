@@ -12,6 +12,8 @@ MCP 工具层通过 daemon 的本机接口下发动作。这个文件只负责�
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import logging
 import os
@@ -38,7 +40,7 @@ from bridge.protocol import (
     WRITE_ACTIONS,
 )
 from bridge.server import PhoneBridgeServer
-from safety.policy import SafetyPolicy, _as_list
+from safety.policy import SafetyPolicy
 
 logger = logging.getLogger("dimensional_portal")
 
@@ -160,6 +162,14 @@ class ConsoleAdapter:
             },
             "apps": list(getattr(plugin, "_apps", [])),
             "categories": list(plugin.config.get("app_categories") or []),
+            "security": {
+                "has_password": bool(str(plugin.config.get("console_password") or "").strip()),
+                "has_readonly_password": bool(str(plugin.config.get("readonly_password") or "").strip()),
+                "sensitive_packages": sorted(plugin.config.get("sensitive_packages") or []),
+                "package_blacklist": sorted(plugin.config.get("package_blacklist") or []),
+                "allow_sensitive_shot": bool(plugin.config.get("allow_screenshot_sensitive")),
+                "allow_sensitive_write": bool(plugin.config.get("allow_sensitive_write")),
+            },
             "category_map": dict(plugin.config.get("app_category") or {}),
             "audit": self.audit_page(limit=20)["items"],
             "editable": {
@@ -167,6 +177,70 @@ class ConsoleAdapter:
                 "bools": sorted(_EDITABLE_BOOLS),
             },
         }
+
+    # ---- 控制台登录（A1/A3/A4） ----
+
+    def has_password(self) -> bool:
+        return bool(str(self.plugin.config.get("console_password") or "").strip())
+
+    def has_readonly_password(self) -> bool:
+        return bool(str(self.plugin.config.get("readonly_password") or "").strip())
+
+    def check_password(self, password: str) -> str | None:
+        """口令对了返回角色 'admin' / 'ro'，否则 None。"""
+        supplied = str(password or "")
+        if not supplied:
+            return None
+        admin_pw = str(self.plugin.config.get("console_password") or "")
+        if admin_pw and hmac.compare_digest(supplied, admin_pw):
+            return "admin"
+        ro_pw = str(self.plugin.config.get("readonly_password") or "")
+        if ro_pw and hmac.compare_digest(supplied, ro_pw):
+            return "ro"
+        return None
+
+    def check_readonly(self, password: str) -> bool:
+        """只读口令校验（给「别人只想看」的场景）。"""
+        ro_pw = str(self.plugin.config.get("readonly_password") or "")
+        if not ro_pw:
+            return False
+        try:
+            return hmac.compare_digest(str(password or ""), ro_pw)
+        except (TypeError, UnicodeError):
+            return False
+
+    def _session_key(self) -> bytes:
+        return str(self.plugin.config.get("session_secret") or "").encode("utf-8")
+
+    def issue_session(self, role: str, hours: int = 12) -> str:
+        """签一个 session 串：base64(payload).hexsig，payload 带角色和过期时间。"""
+        exp = int(time.time()) + max(1, hours) * 3600
+        payload = f"{role}|{exp}"
+        mac = hmac.new(self._session_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        return base64.urlsafe_b64encode(payload.encode("utf-8")).decode("ascii").rstrip("=") + "." + mac
+
+    def verify_session(self, token: str) -> str | None:
+        """校验 session，返回角色；过期或签名不对返回 None。"""
+        raw = str(token or "")
+        if "." not in raw:
+            return None
+        body, _, mac = raw.rpartition(".")
+        try:
+            payload = base64.urlsafe_b64decode(body + "=" * (-len(body) % 4)).decode("utf-8")
+        except Exception:  # noqa: BLE001
+            return None
+        expect = hmac.new(self._session_key(), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(mac, expect):
+            return None
+        role, _, exp = payload.partition("|")
+        try:
+            if int(exp) < int(time.time()):
+                return None
+        except ValueError:
+            return None
+        if role not in ("admin", "ro"):
+            return None
+        return role
 
     async def fetch_icon(self, package: str) -> bytes | None:
         """控制台按需取一个应用图标（转发给 PhoneService）。"""
@@ -275,6 +349,48 @@ class ConsoleAdapter:
             plugin.config[key] = cleaned
             change[key] = cleaned
 
+        # 敏感包名 / 黑名单（A3：以前只能改 dp.json）
+        for key, label in (("sensitive_packages", "敏感应用名单"), ("package_blacklist", "黑名单")):
+            if key not in payload:
+                continue
+            raw = payload.get(key)
+            if raw is None:
+                raw = []
+            if isinstance(raw, str):
+                raw = [line for line in raw.replace("，", ",").replace(chr(10), ",").split(",")]
+            if not isinstance(raw, list):
+                raise ValueError(f"{label}必须是包名数组或换行文本")
+            cleaned_pkgs = []
+            for item in raw:
+                pkg_clean = str(item or "").strip()
+                if not pkg_clean:
+                    continue
+                if not _SAFE_PKG.match(pkg_clean):
+                    raise ValueError(f"{label}里有不像包名的值：{pkg_clean[:40]}")
+                if pkg_clean not in cleaned_pkgs:
+                    cleaned_pkgs.append(pkg_clean)
+            plugin.config[key] = cleaned_pkgs
+            change[key] = len(cleaned_pkgs)
+
+        # 控制台口令（A1）：设置/修改/清空
+        if "console_password" in payload:
+            raw_pw = str(payload.get("console_password") or "")
+            if raw_pw and len(raw_pw) < 6:
+                raise ValueError("访问密码至少 6 位")
+            if len(raw_pw) > 128:
+                raise ValueError("访问密码太长了")
+            plugin.config["console_password"] = raw_pw
+            change["console_password"] = "set" if raw_pw else "cleared"
+
+        if "readonly_password" in payload:
+            raw_ro = str(payload.get("readonly_password") or "")
+            if raw_ro and len(raw_ro) < 6:
+                raise ValueError("只读口令至少 6 位")
+            if raw_ro and raw_ro == str(payload.get("console_password") or plugin.config.get("console_password") or ""):
+                raise ValueError("只读口令不能和访问密码一样")
+            plugin.config["readonly_password"] = raw_ro
+            change["readonly_password"] = "set" if raw_ro else "cleared"
+
         # 手动分类：列表（id+name）与「包名 → 分类 id」映射
         if "app_categories" in payload:
             raw = payload.get("app_categories")
@@ -328,7 +444,8 @@ class ConsoleAdapter:
             saver()
 
         # 让改动立刻生效（不重载插件、不断开手机）
-        if change.keys() & {"rate_limit_per_minute", "app_mode", "app_blocked", "app_allowed"}:
+        if change.keys() & {"rate_limit_per_minute", "app_mode", "app_blocked", "app_allowed",
+                          "sensitive_packages", "package_blacklist"}:
             plugin._rebuild_policy()
             server = getattr(plugin, "server", None)
             if server is not None:

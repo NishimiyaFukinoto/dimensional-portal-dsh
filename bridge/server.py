@@ -41,11 +41,71 @@ DEFAULT_MAX_BODY = 16 * 1024 * 1024  # 截图 base64 走这条通道，留足余
 
 # 管理控制台：同一 IP 每分钟最多失败 10 次，超了锁 60 秒（内存计数，重启即清）
 ADMIN_MAX_FAILS = 10
-ADMIN_FAIL_WINDOW_S = 60.0
+ADMIN_FAIL_WINDOW_S = 600.0  # 10 分钟内失败 10 次就锁 10 分钟
+SESSION_COOKIE = "dp_session"
+SESSION_HOURS = 12
 CONSOLE_HTML_PATH = Path(__file__).with_name("console.html")
 CONSOLE_ASSET_DIR = Path(__file__).with_name("assets")
 # 控制台只允许读这几张背景图（白名单即全部可公开的文件）
 CONSOLE_ASSETS = ("bg-wide.jpg", "bg-tall.jpg")
+
+
+LOGIN_HTML = """<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>次元门 · 登录</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 24px;
+    font: 15px/1.6 -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; color: #33224a;
+    background:
+      radial-gradient(1200px 600px at 20% -10%, #ffe9f3 0%, transparent 60%),
+      radial-gradient(900px 500px at 100% 0%, #e8f1ff 0%, transparent 55%),
+      linear-gradient(160deg, #fdf1f7 0%, #eef4ff 60%, #f7f2ff 100%);
+  }
+  .box {
+    width: min(380px, 100%); padding: 28px 26px 24px; border-radius: 20px;
+    background: rgba(255,255,255,.78); backdrop-filter: blur(14px) saturate(120%);
+    box-shadow: 0 18px 50px rgba(122,92,168,.18), inset 0 1px 0 rgba(255,255,255,.9);
+  }
+  .eyebrow { letter-spacing: .34em; font-size: 11px; color: #a78bbf; text-align: center; }
+  h1 { margin: 6px 0 2px; font-size: 26px; text-align: center; font-weight: 600;
+       font-family: "Songti SC", "Noto Serif SC", serif; }
+  p.sub { margin: 0 0 18px; text-align: center; font-size: 12.5px; color: #7d6b93; }
+  label { display: block; font-size: 12.5px; color: #6b5b83; margin: 0 0 6px; }
+  input[type=password] {
+    width: 100%; padding: 11px 13px; border-radius: 12px; font: inherit;
+    border: 1px solid rgba(122,92,168,.26); background: #fff; color: inherit;
+  }
+  input[type=password]:focus { outline: 2px solid rgba(200,140,200,.45); outline-offset: 1px; }
+  button {
+    margin-top: 16px; width: 100%; padding: 11px 14px; border: 0; border-radius: 999px;
+    font: inherit; font-weight: 600; color: #fff; cursor: pointer;
+    background: linear-gradient(135deg, #f6a9c8, #b79ce8);
+    box-shadow: 0 8px 22px rgba(183,156,232,.4);
+  }
+  .err { color: #d2436b; font-size: 13px; margin: 10px 0 0; text-align: center; }
+  .tip { margin-top: 14px; font-size: 11.5px; color: #8b7aa6; text-align: center; }
+</style>
+</head>
+<body>
+  <form class="box" method="post" action="/login">
+    <div class="eyebrow">DIMENSIONAL PORTAL</div>
+    <h1>次元门</h1>
+    <p class="sub">输入访问密码，进控制台</p>
+    <label for="pw">访问密码</label>
+    <input id="pw" name="password" type="password" autocomplete="current-password" autofocus required>
+    <button type="submit">进入</button>
+    {{ERROR}}
+    <p class="tip">忘了密码：改 dp.json 里的 console_password 为空，再用带 k= 的链接进来重设。</p>
+  </form>
+</body>
+</html>
+"""
 
 
 def _token_match(supplied: str, expected: str) -> bool:
@@ -225,6 +285,9 @@ class PhoneBridgeServer:
         if self.console is None or not self.admin_token or self.admin_token.lower() == "off":
             return
         self.app.router.add_get("/console", self.handle_console)
+        self.app.router.add_get("/login", self.handle_login)
+        self.app.router.add_post("/login", self.handle_login_post)
+        self.app.router.add_get("/logout", self.handle_logout)
         self.app.router.add_get("/console-assets/{name}", self.handle_console_asset)
         self.app.router.add_get("/admin/state", self.handle_admin_state)
         self.app.router.add_post("/admin/config", self.handle_admin_config)
@@ -241,9 +304,39 @@ class PhoneBridgeServer:
         self.admin_token = (admin_token or "").strip()
         self._ensure_admin_routes()
 
-    def _admin_authorized(self, request: web.Request) -> bool:
+    def _session_role(self, request: web.Request) -> str | None:
+        """从 cookie 里认会话；没有/过期返回 None。"""
+        verify = getattr(self.console, "verify_session", None)
+        if not callable(verify):
+            return None
+        token = request.cookies.get(SESSION_COOKIE) or ""
+        if not token:
+            return None
+        try:
+            return verify(token)
+        except Exception:  # noqa: BLE001 - 会话坏了就当没登录
+            return None
+
+    def _admin_role(self, request: web.Request) -> str | None:
+        """返回 'admin' / 'ro' / None。
+
+        优先级：会话 cookie > 链接里的 k（管理密钥）> 只读口令。
+        """
+        role = self._session_role(request)
+        if role:
+            return role
         supplied = request.headers.get("X-Admin-Token") or request.query.get("k") or ""
-        return _token_match(supplied, self.admin_token)
+        if supplied and _token_match(supplied, self.admin_token):
+            return "admin"
+        ro_supplied = request.headers.get("X-Readonly-Token") or request.query.get("rk") or ""
+        if ro_supplied:
+            checker = getattr(self.console, "check_readonly", None)
+            if callable(checker) and checker(ro_supplied):
+                return "ro"
+        return None
+
+    def _admin_authorized(self, request: web.Request) -> bool:
+        return self._admin_role(request) is not None
 
     def _admin_throttled(self, ip: str) -> bool:
         """同一 IP 60 秒内失败满 10 次就锁住（锁随窗口过期自动解除）。"""
@@ -260,7 +353,7 @@ class PhoneBridgeServer:
             for key in [k for k, v in self._admin_fails.items() if not v or v[-1] < cutoff]:
                 self._admin_fails.pop(key, None)
 
-    def _admin_guard(self, request: web.Request) -> web.Response | None:
+    def _admin_guard(self, request: web.Request, write: bool = False) -> web.Response | None:
         ip = self._client_ip(request)
         if self._admin_throttled(ip):
             log.warning(
@@ -270,9 +363,12 @@ class PhoneBridgeServer:
                 ip,
             )
             return web.json_response({"ok": False, "error": "too many attempts"}, status=429)
-        if not self._admin_authorized(request):
+        role = self._admin_role(request)
+        if role is None:
             self._admin_fail(ip)
             return self._deny_admin(request)
+        if write and role != "admin":
+            return web.json_response({"ok": False, "error": "只读会话不能改东西"}, status=403)
         return None
 
     def _deny_admin(self, request: web.Request) -> web.Response:
@@ -485,11 +581,66 @@ class PhoneBridgeServer:
 
     # ------------------------------------------------------------ 控制台接口
 
+    def _login_page(self, error: str = "") -> str:
+        """极简登录页：不引任何外部资源，和 CSP 对齐。"""
+        hint = f'<p class="err">{error}</p>' if error else ""
+        return LOGIN_HTML.replace("{{ERROR}}", hint)
+
+    async def handle_login(self, request: web.Request) -> web.StreamResponse:
+        ip = self._client_ip(request)
+        if self._admin_throttled(ip):
+            return web.Response(status=429, text="试得太多次了，过一会儿再来。")
+        has_pw = bool(getattr(self.console, "has_password", lambda: False)())
+        if not has_pw:
+            return web.Response(status=400, text="还没有设置访问密码：请用带 k= 的链接打开控制台，在「安全」里设置。")
+        return web.Response(text=self._login_page(), content_type="text/html", charset="utf-8")
+
+    async def handle_login_post(self, request: web.Request) -> web.StreamResponse:
+        ip = self._client_ip(request)
+        if self._admin_throttled(ip):
+            return web.Response(status=429, text="试得太多次了，过一会儿再来。")
+        form = await request.post()
+        password = str(form.get("password") or "")
+        checker = getattr(self.console, "check_password", None)
+        role = checker(password) if callable(checker) else None
+        if not role:
+            self._admin_fail(ip)
+            log.warning("[dimensional-portal] 控制台登录失败 from %s", ip)
+            return web.Response(text=self._login_page("口令不对。"), status=401,
+                                content_type="text/html", charset="utf-8")
+        issuer = getattr(self.console, "issue_session", None)
+        token = issuer(role, SESSION_HOURS) if callable(issuer) else ""
+        resp = web.HTTPFound("/console")
+        resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_HOURS * 3600, httponly=True,
+                        samesite="Lax", path="/")
+        log.info("[dimensional-portal] 控制台登录成功 role=%s from %s", role, ip)
+        raise resp
+
+    async def handle_logout(self, request: web.Request) -> web.StreamResponse:
+        resp = web.HTTPFound("/login")
+        resp.del_cookie(SESSION_COOKIE, path="/")
+        raise resp
+
     async def handle_console(self, request: web.Request) -> web.StreamResponse:
         ip = self._client_ip(request)
         if self._admin_throttled(ip):
             log.warning("[dimensional-portal] 管理控制台尝试过多 from %s", ip)
             return web.Response(status=429, text="Too Many Requests")
+
+        # 登录机制：设了口令就用 session；没设口令时维持「带 k 的链接」老办法
+        has_pw = bool(getattr(self.console, "has_password", lambda: False)())
+        role = self._session_role(request)
+        if has_pw and role is None:
+            key = (request.query.get("k") or "").strip()
+            if key and _token_match(key, self.admin_token):
+                issuer = getattr(self.console, "issue_session", None)
+                token = issuer("admin", SESSION_HOURS) if callable(issuer) else ""
+                resp = web.HTTPFound("/console")  # 把 k 从地址栏里去掉
+                resp.set_cookie(SESSION_COOKIE, token, max_age=SESSION_HOURS * 3600,
+                                httponly=True, samesite="Lax", path="/")
+                raise resp
+            raise web.HTTPFound("/login")
+
         if not self._admin_authorized(request):
             # 「打开控制台」这种链接里没有 k：只对本机（回环地址）自动补上，
             # 免得用户还得去日志里抄一长串密钥；外网/局域网访问照旧 403。
@@ -548,7 +699,7 @@ class PhoneBridgeServer:
         )
 
     async def handle_admin_config(self, request: web.Request) -> web.StreamResponse:
-        guard = self._admin_guard(request)
+        guard = self._admin_guard(request, write=True)
         if guard is not None:
             return guard
         try:
@@ -616,7 +767,7 @@ class PhoneBridgeServer:
 
     async def handle_admin_apps_refresh(self, request: web.Request) -> web.StreamResponse:
         """去手机上现读一次应用列表（慢，几秒），读完返回。"""
-        guard = self._admin_guard(request)
+        guard = self._admin_guard(request, write=True)
         if guard is not None:
             return guard
         refresher = getattr(self.console, "refresh_apps", None)
@@ -629,7 +780,7 @@ class PhoneBridgeServer:
         return web.json_response({"ok": True, "apps": list(apps or []), "count": len(apps or [])})
 
     async def handle_admin_stop(self, request: web.Request) -> web.StreamResponse:
-        guard = self._admin_guard(request)
+        guard = self._admin_guard(request, write=True)
         if guard is not None:
             return guard
         cleared = int(self.console.stop_all())

@@ -468,6 +468,26 @@
     overflow-y: auto; overscroll-behavior: contain; scrollbar-width: thin;
   }
   .applist > .audit-empty { margin: auto; }
+  .modal-mask {
+    position: fixed; inset: 0; z-index: 60; display: grid; place-items: center;
+    background: rgba(60, 40, 90, .34); backdrop-filter: blur(3px); padding: 20px;
+  }
+  .modal-mask[hidden] { display: none; }
+  .modal {
+    width: min(420px, 100%); border-radius: 18px; padding: 22px 22px 18px;
+    background: rgba(255, 255, 255, .96); color: var(--text);
+    box-shadow: 0 24px 60px rgba(80, 50, 120, .35);
+  }
+  .modal h3 { margin: 0 0 8px; font-size: 17px; }
+  .modal p { margin: 0; font-size: 13.5px; line-height: 1.7; color: #5c4a72; }
+  .modal-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 18px; }
+  .modal-actions .btn { flex: 0 0 auto; }
+  textarea {
+    width: 100%; font: inherit; font-size: 13px; padding: 9px 11px; border-radius: 12px;
+    border: 1px solid rgba(122, 92, 168, .24); background: #fff; color: inherit;
+    resize: vertical; line-height: 1.6;
+  }
+  textarea:focus { outline: 2px solid rgba(200, 140, 200, .42); outline-offset: 1px; }
   .apptabs { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0 0; }
   .apptab {
     font: inherit; font-size: 12.5px; cursor: pointer; padding: 5px 11px; border-radius: 999px;
@@ -697,6 +717,33 @@
       </section>
 
       <section class="card">
+        <h2>安全</h2>
+        <div class="note tight" id="sec-note">口令只存在本机 dp.json 里。设了访问密码后，控制台地址栏不再带密钥。</div>
+        <div class="grid">
+          <label class="field"><span>访问密码（至少 6 位，空＝不启用）</span>
+            <input type="password" id="pw-console" autocomplete="new-password" placeholder="设置后用它登录">
+          </label>
+          <label class="field"><span>只读口令（只能看，不能改）</span>
+            <input type="password" id="pw-readonly" autocomplete="new-password" placeholder="留空＝不开放只读">
+          </label>
+        </div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="save-passwords" type="button">保存口令</button>
+          <button class="btn ghost" id="logout-btn" type="button">退出登录</button>
+        </div>
+        <label class="field" style="margin-top:14px"><span>敏感应用名单（一行一个包名，这些应用里不截图、不许点）</span>
+          <textarea id="sec-sensitive" rows="4" spellcheck="false" placeholder="com.tencent.mm"></textarea>
+        </label>
+        <label class="field" style="margin-top:10px"><span>应用黑名单（一行一个包名，这些应用点不开）</span>
+          <textarea id="sec-blacklist" rows="3" spellcheck="false" placeholder="com.android.settings"></textarea>
+        </label>
+        <div class="row" style="margin-top:12px">
+          <button class="btn primary" id="save-lists" type="button">保存名单</button>
+        </div>
+        <div class="note" id="sec-lists-note">名单改动立刻生效，不影响已连着的手机。</div>
+      </section>
+
+      <section class="card">
         <h2>安全策略</h2>
         <div class="toggle-row">
           <label class="switch">
@@ -770,7 +817,18 @@
     </div>
   </div>
 
-  <footer>
+    <div class="modal-mask" id="modal-mask" hidden>
+    <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+      <h3 id="modal-title">确认操作</h3>
+      <p id="modal-text"></p>
+      <div class="modal-actions">
+        <button class="btn ghost" id="modal-cancel" type="button">取消</button>
+        <button class="btn danger" id="modal-ok" type="button">确认</button>
+      </div>
+    </div>
+  </div>
+
+<footer>
     <span class="seal"></span>
     每 5 秒自动刷新 · 密钥只在本页地址里，请勿转发
   </footer>
@@ -830,7 +888,33 @@
   }
 
   function withKey(path) {
+    if (!K) { return path; }
     return path + (path.indexOf('?') >= 0 ? '&' : '?') + 'k=' + encodeURIComponent(K);
+  }
+
+  // 危险操作确认弹层：返回 Promise<boolean>
+  function confirmAction(title, text, okLabel) {
+    return new Promise(function (resolve) {
+      var mask = $('modal-mask');
+      if (!mask) { resolve(true); return; }
+      $('modal-title').textContent = title;
+      $('modal-text').textContent = text;
+      $('modal-ok').textContent = okLabel || '确认';
+      mask.hidden = false;
+      function done(value) {
+        mask.hidden = true;
+        $('modal-ok').removeEventListener('click', onOk);
+        $('modal-cancel').removeEventListener('click', onCancel);
+        mask.removeEventListener('click', onMask);
+        resolve(value);
+      }
+      function onOk() { done(true); }
+      function onCancel() { done(false); }
+      function onMask(e) { if (e.target === mask) { done(false); } }
+      $('modal-ok').addEventListener('click', onOk);
+      $('modal-cancel').addEventListener('click', onCancel);
+      mask.addEventListener('click', onMask);
+    });
   }
 
   function api(path, options) {
@@ -846,6 +930,9 @@
         if (!res.ok || !data || data.ok !== true) {
           var err = new Error((data && data.error) || ('HTTP ' + res.status));
           err.status = res.status;
+          if (res.status === 401) {
+            location.href = '/login';
+          }
           throw err;
         }
         return data;
@@ -915,8 +1002,14 @@
   function renderSecurity(cfg) {
     lastCfg = cfg;
     if (policyDirty) { return; }
-    if ($('sw-shot')) { $('sw-shot').checked = cfg.allow_screenshot_sensitive === true; }
-    if ($('sw-write')) { $('sw-write').checked = cfg.allow_sensitive_write === true; }
+    if ($('sw-shot')) {
+      $('sw-shot').checked = cfg.allow_screenshot_sensitive === true;
+      $('sw-shot').dataset.wasOn = cfg.allow_screenshot_sensitive === true ? '1' : '0';
+    }
+    if ($('sw-write')) {
+      $('sw-write').checked = cfg.allow_sensitive_write === true;
+      $('sw-write').dataset.wasOn = cfg.allow_sensitive_write === true ? '1' : '0';
+    }
     POLICY_INTS.forEach(function (id) {
       var el = $(id);
       var key = POLICY_KEYS[id];
@@ -944,10 +1037,29 @@
   }
 
   function savePolicy() {
+    var body = collectPolicy();
+    var risky = [];
+    if (body.allow_screenshot_sensitive === true && !($('sw-shot').dataset.wasOn === '1')) {
+      risky.push('敏感界面（微信 / 支付 / 银行）也会截图并存到本机');
+    }
+    if (body.allow_sensitive_write === true && !($('sw-write').dataset.wasOn === '1')) {
+      risky.push('敏感界面也允许点按和输入');
+    }
+    var go = Promise.resolve(true);
+    if (risky.length) {
+      go = confirmAction('确认打开高风险开关？', risky.join('；') + '。确定要开启吗？', '确定开启');
+    }
+    return go.then(function (ok) {
+      if (!ok) { return; }
+      return doSavePolicy(body);
+    });
+  }
+
+  function doSavePolicy(body) {
     var btn = $('save-policy');
     btn.disabled = true;
     note('policy-note', '正在保存…');
-    return api('/admin/config', { method: 'POST', body: JSON.stringify(collectPolicy()) })
+    return api('/admin/config', { method: 'POST', body: JSON.stringify(body) })
       .then(function (data) {
         policyDirty = false;
         renderSecurity(data.applied || {});
@@ -963,6 +1075,78 @@
       .then(function () {
         btn.disabled = false;
       });
+  }
+
+  // ---------------------------------------------------------------- 安全（口令 / 名单）
+
+  var lastSecurity = null;
+
+  function renderSecCard(sec) {
+    lastSecurity = sec || {};
+    var hasPw = lastSecurity.has_password === true;
+    var hasRo = lastSecurity.has_readonly_password === true;
+    if ($('sec-note')) {
+      $('sec-note').textContent = hasPw
+        ? '已启用访问密码：地址栏不再带密钥，登录状态保持 12 小时。已登录的别人可在下面「退出登录」。'
+        : '还没设访问密码：现在靠地址里的 k= 进控制台。建议设一个密码，之后就不用带 k 了。';
+    }
+    if ($('pw-console')) { $('pw-console').value = ''; $('pw-console').placeholder = hasPw ? '已设置，留空＝不修改' : '设置后用它登录'; }
+    if ($('pw-readonly')) { $('pw-readonly').value = ''; $('pw-readonly').placeholder = hasRo ? '已设置，留空＝不修改' : '留空＝不开放只读'; }
+    if ($('sec-sensitive') && document.activeElement !== $('sec-sensitive')) {
+      $('sec-sensitive').value = (lastSecurity.sensitive_packages || []).join(NEWLINE);
+    }
+    if ($('sec-blacklist') && document.activeElement !== $('sec-blacklist')) {
+      $('sec-blacklist').value = (lastSecurity.package_blacklist || []).join(NEWLINE);
+    }
+  }
+
+  function savePasswords() {
+    var pw = ($('pw-console').value || '').trim();
+    var ro = ($('pw-readonly').value || '').trim();
+    if (!pw && !ro) {
+      note('sec-note', '两个都空着，没有要保存的。', 'warn');
+      return Promise.resolve();
+    }
+    var body = {};
+    if (pw) { body.console_password = pw; }
+    if (ro) { body.readonly_password = ro; }
+    var go = Promise.resolve(true);
+    if (pw) {
+      go = confirmAction('设置访问密码？', '设置后地址栏里的 k= 会失效，下次要用密码登录。密码就存在本机 dp.json 里。', '确定设置');
+    }
+    return go.then(function (ok) {
+      if (!ok) { return; }
+      var btn = $('save-passwords');
+      btn.disabled = true;
+      note('sec-note', '正在保存…');
+      return api('/admin/config', { method: 'POST', body: JSON.stringify(body) }).then(function () {
+        note('sec-note', '口令已保存，下次打开控制台要输入密码。', 'ok');
+        return loadState();
+      }).catch(function (err) {
+        note('sec-note', '保存失败：' + (err.message || '未知错误'), 'bad');
+      }).then(function () { btn.disabled = false; });
+    });
+  }
+
+  function splitLines(id) {
+    var raw = ($(id).value || '');
+    return raw.split(/[,\s\n]+/).map(function (x) { return x.trim(); }).filter(function (x) { return x.length > 0; });
+  }
+
+  function saveLists() {
+    var btn = $('save-lists');
+    btn.disabled = true;
+    note('sec-lists-note', '正在保存…');
+    var body = {
+      sensitive_packages: splitLines('sec-sensitive'),
+      package_blacklist: splitLines('sec-blacklist')
+    };
+    return api('/admin/config', { method: 'POST', body: JSON.stringify(body) }).then(function () {
+      note('sec-lists-note', '名单已保存并生效。', 'ok');
+      return loadState();
+    }).catch(function (err) {
+      note('sec-lists-note', '保存失败：' + (err.message || '未知错误'), 'bad');
+    }).then(function () { btn.disabled = false; });
   }
 
   // ---------------------------------------------------------------- 审计
@@ -1063,6 +1247,7 @@
   var appFilter = 'all';
   var iconObserver = null;
   var consoleKey = new URLSearchParams(location.search).get('k') || '';
+  var NEWLINE = String.fromCharCode(10);
 
   function catName(id) {
     for (var i = 0; i < appCats.length; i++) {
@@ -1318,6 +1503,7 @@
       renderDevice(state);
       var cfg = state.config || {};
       renderSecurity(cfg);
+      if (state.security) { renderSecCard(state.security); }
       syncAppsFromConfig(cfg);
       if (!auditLoaded) { auditLoaded = true; loadAudit(false); loadApps(false); }
     }).catch(function (err) {
@@ -1332,6 +1518,14 @@
   }
 
   function stopAll() {
+    return confirmAction('清空所有排队任务？', '只清掉还没下发到手机的任务；已经执行的动作撤不回来。', '清空')
+      .then(function (ok) {
+        if (!ok) { return; }
+        return doStopAll();
+      });
+  }
+
+  function doStopAll() {
     var btn = $('stop-btn');
     btn.disabled = true;
     note('stop-note', '正在清空…');
@@ -1346,6 +1540,11 @@
   }
 
   $('stop-btn').addEventListener('click', stopAll);
+  if ($('save-passwords')) { $('save-passwords').addEventListener('click', savePasswords); }
+  if ($('save-lists')) { $('save-lists').addEventListener('click', saveLists); }
+  if ($('logout-btn')) {
+    $('logout-btn').addEventListener('click', function () { location.href = '/logout'; });
+  }
   $('save-policy').addEventListener('click', savePolicy);
   $('reset-policy').addEventListener('click', function () {
     policyDirty = false;
@@ -1367,11 +1566,7 @@
     if (!document.hidden) { loadState(); }
   });
 
-  if (!K) {
-    showBanner('地址里缺少 k 参数：请用日志里打印的 /console?k=… 地址打开本页。');
-    setText('updated', '未连接');
-    return;
-  }
+  // 登录后靠 cookie 鉴权，地址里没有 k 也能用；没密码时仍可用 ?k= 打开
 
   loadState();
   timer = setInterval(function () {
