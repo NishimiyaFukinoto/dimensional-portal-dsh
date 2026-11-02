@@ -47,9 +47,15 @@
     "requirements.txt",
     "README.md",
     "LICENSE",
-    "client.js"
+    "client.js",
+    "assets"
   ],
   "scripts": {
     "smoke": "node scripts/plugin_smoke.mjs"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NishimiyaFukinoto/dimensional-portal-dsh.git"
+  },
+  "homepage": "https://github.com/NishimiyaFukinoto/dimensional-portal-dsh#readme"
 }
