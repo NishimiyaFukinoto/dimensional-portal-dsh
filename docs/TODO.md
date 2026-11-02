@@ -8,6 +8,8 @@
 - 插件会按需拉起 `tools/dp_daemon.py`（自动找 python），运行数据落在 `<插件>/data/`：
   `dp.json`、`data/shots/`、`audit.jsonl`、`daemon.log`。
 - `scripts/plugin_smoke.mjs`：假 daemon + 假 ctx，8 项断言（注册 / 转发 / 取整 / render / 断线提示）。
+- `scripts/e2e_local.mjs`：真的拉起 Python daemon 跑一遍（4 项：上线、生成 `local_token`、急停、坏参数不崩），
+  跑完 dispose 会把子进程带走。端口取 `dp.json` 里的 `listen_port`，不再写死。
 - `.npmignore` + `files` 白名单：`*.local.js`（含真实 token 与地址）、`dp.json`、`data/`、`__pycache__`
   都不进包；`npm pack` 现在 29 个文件 / 477 KB。
 - 上架路径写进 `docs/MARKET.md`：市场读的是 awesome-dsh-plugin 目录，要「npm 包 + 目录条目」两件事。
