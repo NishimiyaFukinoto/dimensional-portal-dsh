@@ -166,6 +166,52 @@ const offlineTick = offlineCtx.registered.get('phone_tap')
 const offlineOut = await offlineTick.execute({ x: 1, y: 2 })
 check('daemon 连不上时返回可读错误', () => assert.match(offlineOut.text, /daemon 没起来|连不上/))
 
+// ---- 侧栏面板要读的信息路由 ----
+console.log('== 信息路由 ==')
+const routes = new Map()
+const infoCtx = {
+  logger: { info: () => {} },
+  tools: { register: () => () => {} },
+  on() {},
+  get(name) {
+    if (name !== 'webServer') return undefined
+    return {
+      register(route) {
+        routes.set(route.path, route)
+        return () => routes.delete(route.path)
+      },
+    }
+  },
+}
+const infoCfg = join(dir, 'dp-info.json')
+writeFileSync(
+  infoCfg,
+  JSON.stringify({ token: 'tok-123', admin_token: 'adm-456', console_password: 'pw-789', listen_port: port }),
+  'utf8',
+)
+apply(infoCtx, { port, autostart: false, configPath: infoCfg, dataDir: dir })
+
+const route = routes.get('/dimensional-portal/info')
+check('注册了 /dimensional-portal/info', () => assert.ok(route, '路由没挂上'))
+const res = {
+  statusCode: 0,
+  headers: {},
+  body: '',
+  setHeader(k, v) {
+    this.headers[k] = v
+  },
+  end(t) {
+    this.body = t
+  },
+}
+await route.handler({}, res)
+const payload = JSON.parse(res.body)
+check('返回手机 token', () => assert.equal(payload.token, 'tok-123'))
+check('返回控制台口令', () => assert.equal(payload.adminToken, 'adm-456'))
+check('返回控制台链接（带 k=）', () => assert.match(payload.consoleUrl, /\/console\?k=adm-456$/))
+check('返回登录口令', () => assert.equal(payload.consolePassword, 'pw-789'))
+check('返回手机要用到的地址', () => assert.match(payload.phoneBase, /^http:\/\/.+:\d+$/))
+
 await new Promise((resolve) => server.close(resolve))
 rmSync(dir, { recursive: true, force: true })
 
