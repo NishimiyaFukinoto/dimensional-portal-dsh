@@ -66,6 +66,27 @@ DSH 会话 ──MCP(stdio)──> tools/dp_mcp.py ──HTTP(回环)──> too
 
 ### 3. 把工具接进 DSH
 
+**方式 A：装成 DSH 插件（推荐）**
+
+本仓库本身就是一个 DSH 插件包（`package.json` 带 `dsh.bundle.patch`，`lib/` 里是宿主侧入口）。
+装上之后 DSH 里直接出现 11 个 `phone_*` 工具，**不需要 MCP、不需要额外配置**：
+
+```bash
+dsh plugin --profile desktop add <本仓库路径或 npm 包名>
+```
+
+插件会在需要时自动拉起 `tools/dp_daemon.py`（先找 `python`，找不到会报可读的错误），
+运行数据落在 `<插件目录>/data/`：`dp.json`、`data/shots/`、`audit.jsonl`、`daemon.log`。
+上架市场的过程见 [docs/MARKET.md](docs/MARKET.md)。
+
+插件层自测（不需要真机）：
+
+```bash
+node scripts/plugin_smoke.mjs     # 8 项：注册、转发、取整、渲染、断线提示
+```
+
+**方式 B：加 stdio MCP（老办法）**
+
 用 `dsh-skill-mcp-panel` 加一个 stdio MCP（把 `<python>` 换成装了 `mcp` 的解释器，
 `<仓库路径>` 换成本仓库绝对路径）：
 

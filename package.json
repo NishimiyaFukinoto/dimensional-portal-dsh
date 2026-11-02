@@ -1,0 +1,49 @@
+{
+  "name": "dsh-dimensional-portal",
+  "version": "0.1.0",
+  "description": "Let the DeepSeek Harness agent drive a real Android phone: screenshot, tap, swipe, type, open apps. Bundles the 次元门 daemon; the phone keeps polling your machine, no cloud in between. / 让 DSH 里的 Agent 直接操作你的安卓手机：看屏、点按、打字、开应用。",
+  "keywords": [
+    "deepseek",
+    "harness",
+    "dsh",
+    "dsh-plugin",
+    "android",
+    "phone",
+    "automation",
+    "autox",
+    "mcp"
+  ],
+  "license": "MIT",
+  "type": "module",
+  "main": "lib/index.js",
+  "exports": {
+    ".": "./lib/index.js",
+    "./package.json": "./package.json"
+  },
+  "engines": {
+    "node": ">=22.19",
+    "dsh": ">=0.1.2-alpha.4 <0.3.0-0"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "files": [
+    "lib",
+    "bridge",
+    "dp",
+    "safety",
+    "phone/dimensional_portal_agent.js",
+    "tools",
+    "docs",
+    "cordis.patch.yml",
+    "dp.json.example",
+    "requirements.txt",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "smoke": "node scripts/plugin_smoke.mjs"
+  }
+}

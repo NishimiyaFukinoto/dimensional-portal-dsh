@@ -1,5 +1,25 @@
 # 待办（按优先级）
 
+## 已完成（2026-11-02）：插件化 + 上架准备
+
+- 仓库本身改成 **DSH 插件包**：`package.json` 的 `dsh.bundle.patch` + `cordis.patch.yml` +
+  `lib/index.js`（宿主侧入口）/ `lib/tools.js`（11 个工具定义）/ `lib/daemon.js`（拉起 daemon、转发请求）。
+  装了插件就有 11 个 `phone_*` 工具，**不再需要 MCP 那一层**。
+- 插件会按需拉起 `tools/dp_daemon.py`（自动找 python），运行数据落在 `<插件>/data/`：
+  `dp.json`、`data/shots/`、`audit.jsonl`、`daemon.log`。
+- `scripts/plugin_smoke.mjs`：假 daemon + 假 ctx，8 项断言（注册 / 转发 / 取整 / render / 断线提示）。
+- `.npmignore` + `files` 白名单：`*.local.js`（含真实 token 与地址）、`dp.json`、`data/`、`__pycache__`
+  都不进包；`npm pack` 现在 29 个文件 / 477 KB。
+- 上架路径写进 `docs/MARKET.md`：市场读的是 awesome-dsh-plugin 目录，要「npm 包 + 目录条目」两件事。
+
+**还差三步才能真的在市场里被看见**（都需要你的账号）：
+
+| 步骤 | 谁做 | 说明 |
+| --- | --- | --- |
+| `npm login` + `npm publish` | 你（需要 npm 账号） | 包名 `dsh-dimensional-portal` 目前没被占用 |
+| 向 awesome-dsh-plugin 提 PR | 你（需要 GitHub） | 条目字段见 `docs/MARKET.md` |
+| 装进本机 profile 实测 | 可我做，但要重启 DSH | `dsh plugin add` 后会拉起 daemon，需要 Python + aiohttp |
+
 ## 已完成（2026-11-01）
 
 - **应用访问**：手机上报已安装应用（`apps` 动作）→ 控制台「应用访问」卡逐项勾选 → `app_mode` /

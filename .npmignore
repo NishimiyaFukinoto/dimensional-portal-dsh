@@ -1,0 +1,28 @@
+# 不要把本机私货带进 npm 包
+
+# 手机脚本的本地生成版：里面有真实地址和 token
+*.local.js
+
+# 本机配置（含 token）
+dp.json
+dp.*.json.local
+data/
+tmp/
+
+# Python 字节码 / 缓存
+__pycache__/
+*.py[cod]
+.ruff_cache/
+
+# 测试与历史产物（消费者不需要）
+tests/
+dist/
+*.tgz
+.pytest_cache/
+.covdata
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+Desktop.ini
