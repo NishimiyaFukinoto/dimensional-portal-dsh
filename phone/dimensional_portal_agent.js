@@ -472,16 +472,39 @@ function focusedEditable(root) {
 // ============================================================ 动作实现
 
 /**
+ * 判断一张截图能不能用。
+ * 老版 AutoX 的 captureScreen() 返回 Bitmap，有 isRecycled()；
+ * 新版返回 ImageWrapper，**没有 isRecycled 这个方法**——直接调会抛
+ * "Cannot find function isRecycled in object ImageWrapper"。
+ * 所以这里先看有没有这个方法，没有就当它能用，别把异常抛给上层。
+ */
+function imageUsable(img) {
+    if (!img) return false;
+    try {
+        if (typeof img.isRecycled === "function") {
+            return img.isRecycled() === false;
+        }
+    } catch (e) {
+        // 有这个方法但调用抛错：不是老 Bitmap，按可用处理，真有问题会在 save 时报出来
+        return true;
+    }
+    try {
+        if (typeof img.getWidth === "function" && img.getWidth() <= 0) return false;
+    } catch (e2) { }
+    return true;
+}
+
+/**
  * 拿一张可用的截图位图。
- * AutoX 的 captureScreen() 会复用同一个 Bitmap 实例：一旦被 recycle 过，
- * 下一次就抛 java.lang.IllegalStateException: image has been recycled。
+ * 老版 AutoX 会复用同一个 Bitmap 实例，一旦被 recycle 过，下一次就抛
+ * java.lang.IllegalStateException: image has been recycled。
  * 所以这里既不复用也不回收，拿到的若是已回收的实例就重新申请一次录屏权限再抓。
  */
 function grabScreen() {
     for (var attempt = 0; attempt < 3; attempt++) {
         var img = null;
         try { img = captureScreen(); } catch (e) { img = null; }
-        if (img && !img.isRecycled()) return img;
+        if (imageUsable(img)) return img;
         try { ensureCapture(true); } catch (e2) { }
         sleepSafe(500);
     }
