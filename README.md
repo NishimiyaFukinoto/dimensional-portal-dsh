@@ -1,5 +1,7 @@
 # 次元门 · Dimensional Portal（DSH 版）
 
+<img src="assets/hero.jpg" width="720" alt="次元门：一边是她的星海，一边是我们的黄昏">
+
 让 **DSH 里的 AI** 直接操作你的安卓手机：看屏幕、点按滑动、输入文字、打开应用、找字点击。
 
 和「次元门（AstrBot 插件版）」的关系：手机端脚本、协议、控制台完全同源，只是把
