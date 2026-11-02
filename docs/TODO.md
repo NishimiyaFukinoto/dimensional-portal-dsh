@@ -1,5 +1,12 @@
 # 待办（按优先级）
 
+## 已完成（2026-11-02）：插件化 + npm 发布 + 目录 PR
+
+- **npm**：`dsh-dimensional-portal@0.2.0` 已发布（https://www.npmjs.com/package/dsh-dimensional-portal）
+- **GitHub**：https://github.com/NishimiyaFukinoto/dimensional-portal-dsh（main 已推送）
+- **目录 PR**：awesome-dsh-plugin/awesome-dsh-plugin#11392（新增 `data/plugins/NishimiyaFukinoto__dimensional-portal-dsh.yml`）
+- 合并后 README 自动重建，dshmarket 一般一天内收录 → 市场里可搜可一键装
+
 ## 已完成（2026-11-02）：插件化 + 上架准备
 
 - 仓库本身改成 **DSH 插件包**：`package.json` 的 `dsh.bundle.patch` + `cordis.patch.yml` +
