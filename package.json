@@ -1,6 +1,6 @@
 {
   "name": "dsh-dimensional-portal",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Let the DeepSeek Harness agent drive a real Android phone: screenshot, tap, swipe, type, open apps. Bundles the 次元门 daemon; the phone keeps polling your machine, no cloud in between. / 让 DSH 里的 Agent 直接操作你的安卓手机：看屏、点按、打字、开应用。",
   "keywords": [
     "deepseek",
